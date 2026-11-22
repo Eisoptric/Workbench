@@ -154,7 +154,6 @@ export function PermissionsPage(props: { projects: Project[]; agents: { id: stri
       .then((result) => { if (active) { setLayers(result); setLoading(false); } })
       .catch((reason) => { if (active) { props.onError(reason instanceof Error ? reason.message : t("Could not load permissions")); setLoading(false); } });
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
   const shown = layers.filter((layer) => (target === "user" ? layer.scope === "user" : layer.scope !== "user"));
@@ -206,7 +205,6 @@ export function ProjectPermissions(props: { project: Project; onError: (message:
       .then((result) => { if (active) setLayers(result); })
       .catch((reason) => { if (active) props.onError(reason instanceof Error ? reason.message : t("Could not load permissions")); });
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.project.id]);
   return (
     <div>

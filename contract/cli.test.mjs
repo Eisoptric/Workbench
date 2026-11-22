@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
-import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { api as apiCall, fakeModel, tokenOf } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,17 +46,7 @@ function workbench(args, options = {}) {
 }
 
 let tokenValue;
-
-async function api(method, route, body) {
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${tokenValue}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  assert.ok(response.status < 300, `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
-}
+const api = (method, route, body) => apiCall(runtime, method, route, body);
 
 before(async () => {
   scratch = await realpath(await mkdtemp(path.join(os.tmpdir(), "workbench-contract-cli-")));
@@ -65,27 +55,17 @@ before(async () => {
   await mkdir(home);
   await mkdir(plain);
   runtime = await startRuntime({ env: { HOME: home, USERPROFILE: home } });
-  tokenValue = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
+  tokenValue = await tokenOf(runtime.dataDir);
   // A model that runs one shell command (asked about in Review mode), then answers. A prompt with "slowly" takes its time.
-  server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", () => {
-      const body = JSON.parse(raw || "{}");
-      const text = JSON.stringify(body.messages ?? []);
-      const reply = () => {
-        const ran = text.includes("marker-output") || text.includes('"role":"tool"') || text.includes("denied") || text.includes("Denied");
-        const message = !body.tools?.length || ran || text.includes("no tools please")
-          ? { role: "assistant", content: "all done" }
-          : { role: "assistant", content: "", tool_calls: [{ id: "c0", type: "function", function: { name: "code", arguments: JSON.stringify({ command: "echo marker-output" }) } }] };
-        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "r", object: "chat.completion", model: "s", choices: [{ index: 0, finish_reason: "stop", message }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
-      };
-      if (text.includes("slowly")) setTimeout(reply, 1500);
-      else reply();
-    });
+  server = await fakeModel(async (body) => {
+    const text = JSON.stringify(body.messages ?? []);
+    if (text.includes("slowly")) await new Promise((resolve) => setTimeout(resolve, 1500));
+    const ran = text.includes("marker-output") || text.includes('"role":"tool"') || text.includes("denied") || text.includes("Denied");
+    return !body.tools?.length || ran || text.includes("no tools please")
+      ? "all done"
+      : [{ id: "c0", type: "function", function: { name: "code", arguments: JSON.stringify({ command: "echo marker-output" }) } }];
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const model = await api("POST", "/connections/models", { name: "Local", provider: "openai", model: "s", baseUrl: `http://127.0.0.1:${server.address().port}` });
+  const model = await api("POST", "/connections/models", { name: "Local", provider: "openai", model: "s", baseUrl: server.url });
   await api("POST", "/agents", { name: "Doer", modelConnectionId: model.id, autonomy: "bypass", mcpConnectionIds: ["general-skills"] });
   await api("POST", "/agents", { name: "Careful", modelConnectionId: model.id, autonomy: "review", mcpConnectionIds: ["general-skills"] });
   await api("POST", "/agents", { name: "A=B", modelConnectionId: model.id, autonomy: "bypass" });
@@ -94,7 +74,7 @@ before(async () => {
 });
 after(async () => {
   await runtime?.stop();
-  await new Promise((resolve) => { server?.closeAllConnections(); server?.close(resolve); });
+  await server?.stop();
   await rm(scratch, { recursive: true, force: true });
 });
 

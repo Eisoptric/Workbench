@@ -85,7 +85,6 @@ export function Tour(props: {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // Finishing is the same whichever step is up.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function start() {

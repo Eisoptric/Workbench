@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { api, fetched as raw, until as pollUntil } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 let scratch;
@@ -42,31 +43,7 @@ async function listen(handler) {
   return { seen, port: server.address().port, url: `http://127.0.0.1:${server.address().port}` };
 }
 
-async function raw(runtime, method, route, body, headers = {}) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  return fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-}
-
-async function api(runtime, method, route, body, headers) {
-  const response = await raw(runtime, method, route, body, headers);
-  const text = await response.text();
-  assert.ok(response.status < 300, `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
-}
-
-async function until(what, read, done = Boolean) {
-  let value;
-  for (let attempt = 0; attempt < 400; attempt += 1) {
-    value = await read();
-    if (done(value)) return value;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`never happened: ${what}; last ${JSON.stringify(value)}`);
-}
+const until = (what, read, done = Boolean) => pollUntil(what, read, done, { ms: 10_000, interval: 25 });
 
 /** A model that calls `github.search` once, then answers; and an MCP server with that tool. */
 async function scripted(runtime) {

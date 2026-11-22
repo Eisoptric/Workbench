@@ -195,7 +195,6 @@ export function ResearchApp() {
       ...(runtime.restart ? [{ id: "restart-runtime", label: t("Restart the app's runtime"), run: () => void runtime.restart?.() }] : []),
     ],
     // The commands close over the latest state each time they are rebuilt.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [assistant, go, projectId, projects, runtime.restart, theme, toggleAssistant],
   );
 

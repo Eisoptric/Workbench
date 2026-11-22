@@ -206,7 +206,6 @@ function TwoModels(props: { projectId: string; run: InspectionSource; models: Mo
   // Choosing a child offers its parent, the comparison most often wanted.
   useEffect(() => {
     if (!otherModelId && modelId) setOtherModelId(parentOf(modelId));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelId]);
 
   async function run() {

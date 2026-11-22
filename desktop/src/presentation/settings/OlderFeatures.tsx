@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { desktop } from "../../application/desktop.js";
 import { t } from "../../domain/i18n.js";
-import type { Conversation } from "../../domain/model.js";
 import { Button } from "../ui/base/Button.js";
 import { messageOf } from "../ui/Parts.js";
 
@@ -15,29 +14,26 @@ const OLDER_TEXT = "min-w-0 flex-[1_1_220px] [overflow-wrap:anywhere]";
  */
 export function OlderFeatures(props: { onError: (message: string) => void }) {
   const { onError } = props;
-  const [watched, setWatched] = useState<Conversation[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const agents = await desktop.catalog.listAgents();
-      const threads = (await Promise.all(agents.map((agent) => desktop.catalog.listThreads(agent.id)))).flat();
-      setWatched(threads.filter((thread) => thread.pullRequest?.watching));
-    } catch (error) {
-      onError(messageOf(error));
-    } finally {
-      setLoaded(true);
-    }
-  }, [onError]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const query = useQuery({
+    queryKey: ["catalog", "watchedPullRequests"],
+    queryFn: async () => {
+      try {
+        const agents = await desktop.catalog.listAgents();
+        const threads = (await Promise.all(agents.map((agent) => desktop.catalog.listThreads(agent.id)))).flat();
+        return threads.filter((thread) => thread.pullRequest?.watching);
+      } catch (error) {
+        onError(messageOf(error));
+        throw error;
+      }
+    },
+  });
+  const watched = query.data ?? [];
+  const loaded = query.isFetched;
 
   async function act(action: () => Promise<unknown>) {
     try {
       await action();
-      await load();
+      await query.refetch();
     } catch (error) {
       onError(messageOf(error));
     }

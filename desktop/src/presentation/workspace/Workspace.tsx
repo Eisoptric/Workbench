@@ -409,7 +409,6 @@ export function Workspace(props: ScreenProps & { onFocus: (focus: WorkspaceFocus
       live = false;
     };
     // Only when the workspace opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Every change to the records says to read a live run again, with a slow poll in case the stream drops.

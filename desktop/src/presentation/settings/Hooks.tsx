@@ -52,7 +52,6 @@ export function HooksPage(props: { projects: Project[]; onError: (message: strin
       void desktop.admin.hooks(project.id).then((sets) => { if (active) setProjectSets((prev) => ({ ...prev, [project.id]: sets.filter((set) => set.source === "project-file" || set.source === "claude-file") })); }, () => undefined);
     }
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.projects.map((project) => project.id).join(",")]);
 
   async function save(next: Hook[]) {

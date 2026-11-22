@@ -158,7 +158,6 @@ export function UsageBilling(props: { refreshOn?: readonly unknown[] }) {
     return () => {
       current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey, ...(props.refreshOn ?? [])]);
 
   const label = PERIODS.find(([id]) => id === period)?.[1] ?? "";

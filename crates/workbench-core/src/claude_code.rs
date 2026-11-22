@@ -523,23 +523,10 @@ impl Kernel {
         command.env("CLAUDE_CONFIG_DIR", self.claude_config());
     }
 
-    async fn make_private_folder(folder: &Path) -> Result<(), CoreError> {
-        tokio::fs::create_dir_all(folder)
-            .await
-            .map_err(|error| CoreError::new(500, error.to_string()))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                tokio::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700)).await;
-        }
-        Ok(())
-    }
-
     /// Asks the official program whether it is signed in; it reads the credential, the app only reads its answer.
     pub async fn claude_status(&self) -> Result<Value, CoreError> {
         let config = self.claude_config();
-        Self::make_private_folder(&config).await?;
+        crate::agent_sessions::make_private_folder(&config).await?;
         let shown = config.to_string_lossy().into_owned();
         let Ok(cli) = self.program_path("claude-code") else {
             return Ok(
@@ -614,7 +601,7 @@ impl Kernel {
         let workdir = tokio::fs::canonicalize(&workdir)
             .await
             .map_or(workdir, workbench_domain::plain_path);
-        Self::make_private_folder(&self.claude_config()).await?;
+        crate::agent_sessions::make_private_folder(&self.claude_config()).await?;
         let cli = self.program_path("claude-code")?;
         let resume = self.saved_session(&run, "claudeSessionId");
         let context = self.turn_context(agent, &run, &[]).await;

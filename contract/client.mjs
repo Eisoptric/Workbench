@@ -4,15 +4,22 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 
+/** One tool call in a scripted model turn. */
+export const toolCall = (name, args, id = `call_${name}`) => ({
+  id,
+  type: "function",
+  function: { name, arguments: JSON.stringify(args) },
+});
+
 /** Reads the runtime's per-session bearer token from its data folder. */
 export async function tokenOf(dataDir) {
   return (await readFile(path.join(dataDir, "runtime-token"), "utf8")).trim();
 }
 
-/** An authenticated API call returning status, parsed body, and headers. */
-export async function request(target, method, route, body, headers = {}) {
+/** An authenticated raw fetch against the runtime. */
+export async function fetched(target, method, route, body, headers = {}) {
   const token = await tokenOf(target.dataDir);
-  const response = await fetch(`${target.origin}${route}`, {
+  return fetch(`${target.origin}${route}`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
@@ -21,6 +28,11 @@ export async function request(target, method, route, body, headers = {}) {
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+/** An authenticated API call returning status, parsed body, and headers. */
+export async function request(target, method, route, body, headers = {}) {
+  const response = await fetched(target, method, route, body, headers);
   const text = await response.text();
   let parsed;
   try {
@@ -32,8 +44,8 @@ export async function request(target, method, route, body, headers = {}) {
 }
 
 /** An authenticated API call that must succeed (< 300). */
-export async function api(target, method, route, body) {
-  const answer = await request(target, method, route, body);
+export async function api(target, method, route, body, headers = {}) {
+  const answer = await request(target, method, route, body, headers);
   assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
   return answer.body;
 }

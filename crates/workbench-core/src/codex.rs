@@ -311,16 +311,7 @@ impl Kernel {
     }
 
     async fn make_codex_home(&self) -> Result<(), CoreError> {
-        let home = self.codex_home();
-        tokio::fs::create_dir_all(&home)
-            .await
-            .map_err(|error| CoreError::new(500, error.to_string()))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = tokio::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).await;
-        }
-        Ok(())
+        crate::agent_sessions::make_private_folder(&self.codex_home()).await
     }
 
     /// The sign-in on show: the one in progress, or the last one that failed.

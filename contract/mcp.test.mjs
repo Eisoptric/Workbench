@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { request as apiRequest, until } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 let runtime;
@@ -23,15 +24,9 @@ after(async () => {
 });
 
 async function api(method, route, body, expected = [200, 201, 204]) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  assert.ok(expected.includes(response.status), `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
+  const answer = await apiRequest(runtime, method, route, body);
+  assert.ok(expected.includes(answer.status), `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
+  return answer.body;
 }
 
 /** A server on a free port. `handle` gets the request, its body as text, and the response. */
@@ -84,12 +79,8 @@ async function agentCalling(serverId, tool, autonomy = "bypass") {
   const model = await api("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: modelUrl });
   const agent = await api("POST", "/agents", { name: "Caller", modelConnectionId: model.id, autonomy, mcpConnectionIds: ["general-skills", serverId] });
   const created = await api("POST", `/agents/${agent.id}/runs`, { input: "go" });
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    const run = await api("GET", `/runs/${created.id}`);
-    if (!["queued", "running"].includes(run.status)) return { run, requests };
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("the run did not settle");
+  const run = await until("the run settles", () => api("GET", `/runs/${created.id}`), (item) => !["queued", "running"].includes(item.status), { ms: 10_000 });
+  return { run, requests };
 }
 
 for (const stream of [false, true]) {

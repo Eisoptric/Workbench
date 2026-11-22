@@ -116,7 +116,6 @@ export function Samples(props: ScreenProps & { onReview: (item: SampleItem | nul
     // A request is followed once; reopening the screen later starts from the newest run again.
     if (target) service.saveSession(projectId, { ...service.loadSession(projectId), review: undefined });
     // Only when the records first arrive or another screen asks again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value === null, target]);
 
   useEffect(() => service.onOpen((asked) => asked.kind === "sample" && setTarget(asked)), []);
@@ -188,7 +187,6 @@ export function Samples(props: ScreenProps & { onReview: (item: SampleItem | nul
     })();
     return () => { live = false; };
     // Only when the records change; a new run or filter is the effect above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
 
   // The chosen sample across the models of this run, and across every other run that saw it when asked.
@@ -217,7 +215,6 @@ export function Samples(props: ScreenProps & { onReview: (item: SampleItem | nul
       live = false;
     };
     // `runs` changes identity with every refresh; its ids are what matter and they are in `allRuns`' choice.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allRuns, notify, onReview, projectId, refresh, runId, sampleId]);
 
   async function moreSamples() {

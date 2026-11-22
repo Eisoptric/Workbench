@@ -131,7 +131,6 @@ export function SourceEditor(props: {
       view.destroy();
     };
     // Only a new document replaces the editor: its content then lives in the editor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.documentKey, props.language, props.documents, props.cacheKey, props.languageServices, props.path]);
 
   return <div className={props.fit ? "min-w-0 overflow-hidden rounded-sm border border-border [&_.cm-editor]:h-auto" : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"}>

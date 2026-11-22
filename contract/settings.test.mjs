@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { request as apiRequest } from "./client.mjs";
 import { node } from "./files-support.mjs";
 import { startRuntime } from "./runtime.mjs";
 
@@ -23,23 +24,7 @@ after(async () => {
   await rm(outside, { recursive: true, force: true });
 });
 
-/** An API call with the token. Gives the status and the answer. */
-async function call(method, route, body) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  let answer = text;
-  try {
-    answer = text ? JSON.parse(text) : undefined;
-  } catch {
-    // Not JSON: a page.
-  }
-  return { status: response.status, body: answer };
-}
+const call = (method, route, body) => apiRequest(runtime, method, route, body);
 
 /** The same, refusing any status but the expected one. */
 async function api(method, route, body, expected = 200) {

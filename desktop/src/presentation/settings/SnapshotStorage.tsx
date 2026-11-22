@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "../../application/desktop";
 import { t } from "../../domain/i18n";
 import { askToConfirm } from "../../infrastructure/confirm";
 import { Button } from "../ui/base/Button.js";
 import { RowDescription, RowLabel, RowText, SettingsRow } from "./Parts";
-
-type Storage = { folders: { id: string; folder: string | null; bytes: number }[]; bytes: number };
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,13 +23,19 @@ export function formatBytes(bytes: number): string {
  * shell commands change there), with their size; each can be deleted, or all, after a confirmation.
  */
 export function SnapshotStorage(props: { onError: (message: string) => void }) {
-  const [storage, setStorage] = useState<Storage | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const load = () => desktop.admin.snapshotStorage().then(setStorage, (reason) => props.onError(reason instanceof Error ? reason.message : t("Could not read the snapshots")));
-  useEffect(() => {
-    void load();
-  }, []);
+  const query = useQuery({
+    queryKey: ["admin", "snapshotStorage"],
+    queryFn: async () => {
+      try {
+        return await desktop.admin.snapshotStorage();
+      } catch (reason) {
+        props.onError(reason instanceof Error ? reason.message : t("Could not read the snapshots"));
+        throw reason;
+      }
+    },
+  });
+  const storage = query.data ?? null;
 
   async function remove(id?: string, folder?: string | null) {
     const question = !id
@@ -43,7 +48,7 @@ export function SnapshotStorage(props: { onError: (message: string) => void }) {
     try {
       await desktop.admin.deleteSnapshots(id);
       props.onError("");
-      await load();
+      await query.refetch();
     } catch (reason) {
       props.onError(reason instanceof Error ? reason.message : t("Could not delete"));
     } finally {

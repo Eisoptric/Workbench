@@ -1,23 +1,14 @@
 // What Settings → Logs shows: the level the user chose, and each configuration change with what changed, never a key or private text.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { api as apiCall } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
-async function client(runtime) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const api = async (method, route, body) => {
-    const response = await fetch(`${runtime.origin}${route}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    assert.ok(response.status < 300, `${method} ${route}: ${response.status} ${text}`);
-    return text ? JSON.parse(text) : undefined;
-  };
+function client(runtime) {
+  const api = (method, route, body) => apiCall(runtime, method, route, body);
   const lines = async () => {
     const answer = await api("GET", "/logs");
     return (Array.isArray(answer) ? answer : answer.lines ?? answer.logs ?? answer.entries).map((line) => `${line.level} ${line.service} ${line.message}`);

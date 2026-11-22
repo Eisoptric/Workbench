@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "../../application/desktop";
 import { t } from "../../domain/i18n";
-import type { HookEvent, Plugin } from "../../domain/model";
+import type { HookEvent } from "../../domain/model";
 import { askToConfirm } from "../../infrastructure/confirm";
 import { Badge } from "../ui/base/Badge.js";
 import { Button } from "../ui/base/Button.js";
@@ -13,29 +14,27 @@ const EVENT_WORDS: Record<HookEvent, string> = { pre_tool: t("pre tool"), post_t
 
 /** Settings → Plugins: install from a folder or a git URL, turn on or off, allow a plugin's hooks, remove it. */
 export function PluginsPage(props: { onError: (message: string) => void; onChanged?: () => void }) {
-  const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [source, setSource] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      setPlugins(await desktop.admin.plugins());
-    } catch (reason) {
-      props.onError(reason instanceof Error ? reason.message : t("Could not load plugins"));
-    }
-  }
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const query = useQuery({
+    queryKey: ["admin", "plugins"],
+    queryFn: async () => {
+      try {
+        return await desktop.admin.plugins();
+      } catch (reason) {
+        props.onError(reason instanceof Error ? reason.message : t("Could not load plugins"));
+        throw reason;
+      }
+    },
+  });
+  const plugins = query.data ?? [];
 
   async function act(key: string, action: () => Promise<unknown>) {
     setBusy(key);
     try {
       await action();
       props.onError("");
-      await load();
+      await query.refetch();
       props.onChanged?.();
     } catch (reason) {
       props.onError(reason instanceof Error ? reason.message : t("Something went wrong"));

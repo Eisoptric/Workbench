@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { api, fakeServer, request as raw, toolCall as call, until as pollUntil } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 // A 1×1 transparent PNG.
@@ -36,89 +37,44 @@ after(async () => {
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-/** One tool call in a model turn. */
-const call = (name, args, id = `call_${name}`) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-
 /**
  * A fake OpenAI-compatible model. A request with tools (a turn of a run) takes the next of `steps`, or asks `answer` when
  * that is a function, and gets "done" when there is nothing left. Steps are text, a list of tool calls, { status, body } for
  * an error, or { content, calls, thinking }. A request without tools is background work (a title, memory) and takes nothing.
  */
 async function fakeModel({ steps = [], answer, usage = { prompt_tokens: 10, completion_tokens: 2 } } = {}) {
-  const requests = [];
   const authorizations = [];
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", () => {
-      const body = JSON.parse(raw || "{}");
-      requests.push(body);
-      authorizations.push(request.headers.authorization);
-      const step = !body.tools?.length ? "background" : answer ? answer(body) : steps.shift();
-      if (step?.status) {
-        response.writeHead(step.status, { "content-type": "application/json" }).end(JSON.stringify(step.body ?? { error: { message: "refused" } }));
-        return;
-      }
-      const shaped = Array.isArray(step) ? { calls: step } : typeof step === "string" ? { content: step } : step ?? { content: "done" };
-      const message = { role: "assistant", content: shaped.content ?? "", ...(shaped.thinking ? { thinking: shaped.thinking } : {}), ...(shaped.calls ? { tool_calls: shaped.calls } : {}) };
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
-        id: "reply",
-        object: "chat.completion",
-        model: "fake",
-        choices: [{ index: 0, finish_reason: shaped.calls ? "tool_calls" : "stop", message }],
-        usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
-      }));
-    });
+  const server = await fakeServer((body, response, incoming) => {
+    authorizations.push(incoming.headers.authorization);
+    const step = !body.tools?.length ? "background" : answer ? answer(body) : steps.shift();
+    if (step?.status) {
+      response.writeHead(step.status, { "content-type": "application/json" }).end(JSON.stringify(step.body ?? { error: { message: "refused" } }));
+      return;
+    }
+    const shaped = Array.isArray(step) ? { calls: step } : typeof step === "string" ? { content: step } : step ?? { content: "done" };
+    const message = { role: "assistant", content: shaped.content ?? "", ...(shaped.thinking ? { thinking: shaped.thinking } : {}), ...(shaped.calls ? { tool_calls: shaped.calls } : {}) };
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+      id: "reply",
+      object: "chat.completion",
+      model: "fake",
+      choices: [{ index: 0, finish_reason: shaped.calls ? "tool_calls" : "stop", message }],
+      usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
+    }));
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const model = {
     steps,
-    requests,
+    requests: server.requests,
     authorizations,
     /** The requests that were turns of a run, leaving out background work. */
-    turns: () => requests.filter((body) => body.tools?.length),
-    url: `http://127.0.0.1:${server.address().port}`,
-    stop: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }),
+    turns: () => server.requests.filter((body) => body.tools?.length),
+    url: server.url,
+    stop: server.stop,
   };
   models.push(model);
   return model;
 }
 
-/** An API call with the token: the status and the parsed answer, whatever they are. */
-async function raw(target, method, route, body) {
-  const token = (await readFile(path.join(target.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${target.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  let parsed = text;
-  try {
-    parsed = text ? JSON.parse(text) : undefined;
-  } catch {
-    // A page, not JSON: kept as text.
-  }
-  return { status: response.status, body: parsed };
-}
-
-/** An API call that must succeed. */
-async function api(target, method, route, body) {
-  const answer = await raw(target, method, route, body);
-  assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
-
-/** Polls `read` until `done` holds its value, and answers the value. */
-async function until(what, read, done, ms = 30_000) {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await read();
-    if (done(value)) return value;
-    if (Date.now() > deadline) throw new Error(`${what} did not happen: ${JSON.stringify(value)?.slice(0, 2000)}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
+const until = (what, read, done, ms = 30_000) => pollUntil(what, read, done, { ms });
 
 const getRun = (id, target = runtime) => api(target, "GET", `/runs/${id}`);
 const finished = (run) => !["queued", "running", "waiting_approval", "sleeping"].includes(run.status);

@@ -37,6 +37,19 @@ const MCP_VERSIONS: [&str; 5] = [
     "2024-10-07",
 ];
 
+/// Creates a folder owned by this user only (`0o700` on Unix) for CLI program credentials and state.
+pub(crate) async fn make_private_folder(folder: &Path) -> Result<(), CoreError> {
+    tokio::fs::create_dir_all(folder)
+        .await
+        .map_err(|error| CoreError::new(500, error.to_string()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = tokio::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700)).await;
+    }
+    Ok(())
+}
+
 /// How much an agent may do without asking: what its chat's mode says, else its own setting.
 pub(crate) fn approval_mode(agent: &Value, chat_mode: Option<&str>) -> GuardrailMode {
     // A chat's mode says how much it asks; the agent's own setting is for a chat with none.

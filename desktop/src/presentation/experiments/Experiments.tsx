@@ -524,7 +524,6 @@ function useResults(projectId: string, runs: ExperimentRun[], newest: Experiment
       live = false;
     };
     // `runKey` says when the runs changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labelRevision, notify, projectId, runKey, newest?.id]);
 
   return { summaries, comparisons, labels };
