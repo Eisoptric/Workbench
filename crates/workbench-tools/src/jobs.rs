@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -12,7 +12,8 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Child;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use workbench_domain::time::{iso_time, now_millis};
+use workbench_foundation::sync::locked;
+use workbench_foundation::time::{iso_time, now_millis};
 
 use crate::process;
 use crate::shell::Invocation;
@@ -66,10 +67,6 @@ struct Job {
     recorded: Mutex<Recorded>,
     /// Counts what happened, so a reader can wait for more output or the end.
     changes: watch::Sender<u64>,
-}
-
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Job {

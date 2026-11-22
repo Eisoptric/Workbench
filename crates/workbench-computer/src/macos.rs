@@ -8,9 +8,9 @@ use base64::engine::general_purpose::STANDARD;
 use regex::Regex;
 use serde_json::{Value, json};
 use tokio::process::Command;
-use workbench_domain::js;
-use workbench_domain::time::now_millis;
-use workbench_tools::launch_env;
+use workbench_foundation::js;
+use workbench_foundation::time::now_millis;
+use workbench_sandbox::launch_env;
 
 use crate::{Canvas, Failure, Region, Tree};
 

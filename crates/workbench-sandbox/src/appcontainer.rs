@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use workbench_appcontainer::{FLAG, Policy, Shared};
-use workbench_domain::plain_path;
+use workbench_foundation::plain_path;
 
 use crate::sandbox::real;
 use crate::shell::{Env, Invocation};

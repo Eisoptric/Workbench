@@ -2,8 +2,8 @@
 use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
-use workbench_domain::js;
-use workbench_domain::time::now_millis;
+use workbench_foundation::js;
+use workbench_foundation::time::now_millis;
 
 /// A folder name for a recording: one plain name under recordings, or a new one when none is given.
 pub(crate) fn recording_name(raw: Option<&Value>) -> String {

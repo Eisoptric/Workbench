@@ -2,5 +2,6 @@
 //! a plan says.
 pub mod patch;
 pub mod plan;
-pub mod public_address;
 pub mod workspace;
+
+pub use workbench_foundation::public_address;

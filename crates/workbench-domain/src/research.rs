@@ -311,10 +311,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
-/// Bytes as lowercase hex.
-pub fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
+pub use workbench_foundation::hex;
 
 /// What identifies a frozen version's content: equal for the same content whatever order its keys came in.
 pub fn fingerprint(content: &Value) -> String {

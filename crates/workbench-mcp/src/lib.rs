@@ -3,11 +3,12 @@
 //! Stopping a call is dropping its future.
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::sync::OnceCell;
+use workbench_foundation::sync::locked;
 use workbench_store::FileStore;
 use workbench_telemetry::network::client_builder;
 use workbench_telemetry::{Kind, Span};
@@ -48,25 +49,18 @@ pub struct Target {
 }
 
 /// Why a call did not work.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum McpError {
     /// The server needs the user to sign in; the browser has been sent to this address.
+    #[error("Sign-in required")]
     SignIn(String),
+    #[error("{0}")]
     Failed(String),
 }
 
 impl McpError {
     fn failed(message: impl Into<String>) -> Self {
         Self::Failed(message.into())
-    }
-}
-
-impl std::fmt::Display for McpError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::SignIn(_) => "Sign-in required",
-            Self::Failed(message) => message,
-        })
     }
 }
 
@@ -106,10 +100,6 @@ fn initialize_params() -> Value {
         "capabilities": {},
         "clientInfo": { "name": "workbench", "version": "0.1.0" },
     })
-}
-
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Host only: the rest of a URL can carry tokens.

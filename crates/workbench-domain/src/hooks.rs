@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 
 /// When a hook runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../../desktop/src/domain/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum HookEvent {
     PreTool,
@@ -28,17 +30,21 @@ impl HookEvent {
 
 /// One hook.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../../desktop/src/domain/generated/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Hook {
     pub event: HookEvent,
     /// A tool id or glob (`code`, `files`, `github_*`); empty matches every tool. Ignored for `stop`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub matcher: Option<String>,
     pub command: String,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "whole_when_possible"
     )]
+    #[cfg_attr(test, ts(optional))]
     pub timeout_ms: Option<f64>,
 }
 

@@ -12,8 +12,8 @@ workspace = true
 [dependencies]
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 base64 = "0.23"
-workbench-domain = { path = "../workbench-domain" }
 getrandom = { version = "0.4", features = ["std"] }
+workbench-foundation = { path = "../workbench-foundation" }
 workbench-telemetry = { path = "../workbench-telemetry" }
 serde = { version = "1", features = ["derive"] }
 # Numbers as JavaScript wrote them: exact floats.

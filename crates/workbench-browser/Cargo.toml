@@ -13,9 +13,9 @@ workspace = true
 base64 = "0.23"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
-workbench-domain = { path = "../workbench-domain" }
+workbench-foundation = { path = "../workbench-foundation" }
+workbench-sandbox = { path = "../workbench-sandbox" }
 workbench-telemetry = { path = "../workbench-telemetry" }
-workbench-tools = { path = "../workbench-tools" }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 tokio = { version = "1", features = ["fs", "macros", "net", "process", "rt", "sync", "time"] }
 # The DevTools protocol's connection, only ever to the browser on this computer, so without TLS.

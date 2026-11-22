@@ -39,6 +39,8 @@ impl Platform {
 
 /// How far a command's writes may reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../../desktop/src/domain/generated/"))]
 #[serde(rename_all = "kebab-case")]
 pub enum SandboxMode {
     WorkspaceWrite,
@@ -60,6 +62,8 @@ impl SandboxMode {
 
 /// The sandbox a command runs in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../../desktop/src/domain/generated/"))]
 pub struct SandboxSettings {
     pub mode: SandboxMode,
     pub network: bool,

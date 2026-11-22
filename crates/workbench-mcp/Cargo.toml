@@ -13,10 +13,12 @@ workspace = true
 base64 = "0.23"
 getrandom = { version = "0.4", features = ["std"] }
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+workbench-foundation = { path = "../workbench-foundation" }
 workbench-store = { path = "../workbench-store" }
 workbench-telemetry = { path = "../workbench-telemetry" }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 sha2 = "0.11"
+thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
 url = "2"
 

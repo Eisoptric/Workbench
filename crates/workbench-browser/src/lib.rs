@@ -15,13 +15,14 @@ pub use pace::Pace;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::process::Child;
 use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot};
 use tokio::task::JoinHandle;
+pub(crate) use workbench_foundation::sync::locked;
 
 use chrome::Chrome;
 use safari::Safari;
@@ -189,11 +190,6 @@ impl Supervised {
     }
 }
 
-/// Locks shared state; a panic elsewhere leaves it usable.
-pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 struct Inner {
     mode: Mutex<Mode>,
     /// One tool at a time: snapshot ids are only good for the next action, and one call starts the browser.
@@ -357,7 +353,7 @@ pub(crate) async fn settle(milliseconds: u64) {
 
 /// `direction` and how many pixels a scroll goes, as [x, y].
 pub(crate) fn scroll_by(args: &Value) -> (String, f64, f64) {
-    use workbench_domain::js;
+    use workbench_foundation::js;
     let given = js::text(args.get("direction"));
     let direction = if ["up", "down", "left", "right"].contains(&given.as_str()) {
         given

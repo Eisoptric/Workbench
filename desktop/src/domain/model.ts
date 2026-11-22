@@ -155,9 +155,14 @@ export type Conversation = {
   updatedAt: string;
 };
 
-/** A hook: a command that runs before or after a tool call, or when a turn ends (see Settings → Hooks). */
-export type HookEvent = "pre_tool" | "post_tool" | "stop";
-export type Hook = { event: HookEvent; matcher?: string; command: string; timeoutMs?: number };
+import type { Hook } from "./generated/Hook";
+import type { HookEvent } from "./generated/HookEvent";
+import type { PermissionEffect } from "./generated/PermissionEffect";
+import type { PermissionRule } from "./generated/PermissionRule";
+import type { PermissionScope } from "./generated/PermissionScope";
+export type { Hook, HookEvent, PermissionEffect, PermissionRule, PermissionScope };
+
+/** A hook set from one source (see Settings → Hooks). */
 export type HookSet = { source: "user" | "project-file" | "claude-file" | "plugin"; path?: string; hooks: Hook[]; fingerprint?: string; approved: boolean };
 
 /** The `workbench` command's launcher. */
@@ -201,9 +206,6 @@ export type PullRequestWatch = {
 /** How full a chat's context is for its model (an estimate in tokens), and what its summary covers. */
 export type ContextUsage = { usedTokens: number; budgetTokens: number; windowTokens: number; percent: number; turns: number; summary: { turns: number; createdAt: string } | null };
 
-/** A permission rule: what a tool may do without asking (allow), must ask about (ask), or may never do (deny). */
-export type PermissionRule = { tool: string; pattern: string; effect: "allow" | "deny" | "ask" };
-export type PermissionScope = "user" | "project" | "agent" | "project-file" | "claude-file";
 export type PermissionLayer = {
   scope: PermissionScope;
   rules: PermissionRule[];
@@ -322,8 +324,9 @@ export type Profile = {
   onboardedAt?: string;
 };
 /** How the `code` tool's commands are confined: writes only in the workspace, none at all, or no sandbox. */
-export type SandboxMode = "workspace-write" | "read-only" | "off";
-export type SandboxSettings = { mode: SandboxMode; network: boolean };
+import type { SandboxMode } from "./generated/SandboxMode";
+import type { SandboxSettings } from "./generated/SandboxSettings";
+export type { SandboxMode, SandboxSettings };
 /** Whether this computer can sandbox commands, with what, why not, and whether a setup run from the app would help (Windows). */
 /** What is still working in the runtime and would stop if it quit. */
 export type Activity = { chats: number; runs: number; commands: number };

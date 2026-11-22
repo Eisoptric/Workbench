@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sandboxReason } from "../src/domain/sandbox.ts";
 
-const tools = new URL("../../crates/workbench-tools/src/", import.meta.url);
+const sandbox = new URL("../../crates/workbench-sandbox/src/", import.meta.url);
 const core = new URL("../../crates/workbench-core/src/", import.meta.url);
-const runtime = ["sandbox.rs", "appcontainer.rs"].map((name) => readFileSync(new URL(name, tools), "utf8")).join("\n") + readFileSync(new URL("admin.rs", core), "utf8");
+const runtime = ["sandbox.rs", "appcontainer.rs"].map((name) => readFileSync(new URL(name, sandbox), "utf8")).join("\n") + readFileSync(new URL("admin.rs", core), "utf8");
 const known = [...readFileSync(new URL("../src/domain/sandbox.ts", import.meta.url), "utf8").matchAll(/case "(.+)":/g)].map((match) => match[1]);
 
 test("every reason the interface translates is given by the runtime word for word", () => {

@@ -14,11 +14,11 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
-use workbench_domain::js;
-use workbench_domain::skills::public_address::parse_public_address;
+use workbench_foundation::js;
+use workbench_foundation::public_address::parse_public_address;
+use workbench_sandbox::launch_env;
+use workbench_sandbox::public_host::{SystemLookup, assert_public_host};
 use workbench_telemetry::network::{SendNoted, client_builder};
-use workbench_tools::launch_env;
-use workbench_tools::public_host::{SystemLookup, assert_public_host};
 
 use crate::chrome::CURSOR_SCRIPT;
 use crate::{Page, Recording, Supervised, Viewers, files, locked, plain_number, scroll_by, settle};

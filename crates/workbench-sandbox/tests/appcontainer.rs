@@ -5,20 +5,20 @@ use std::path::{Path, PathBuf};
 
 #[cfg(not(windows))]
 use workbench_appcontainer::Policy;
-use workbench_tools::confine::{Confinement, windows_confinement};
+use workbench_sandbox::confine::{Confinement, windows_confinement};
 #[cfg(not(windows))]
-use workbench_tools::sandbox::{Platform, SandboxSupport, sandbox_support, wrap_command};
-use workbench_tools::sandbox::{SandboxMode, SandboxSettings, windows_hint, windows_policy};
-use workbench_tools::shell::Env;
+use workbench_sandbox::sandbox::{Platform, SandboxSupport, sandbox_support, wrap_command};
+use workbench_sandbox::sandbox::{SandboxMode, SandboxSettings, windows_hint, windows_policy};
+use workbench_sandbox::shell::Env;
 #[cfg(not(windows))]
-use workbench_tools::shell::Invocation;
+use workbench_sandbox::shell::Invocation;
 
 /// A folder that exists, so its path resolves the same way every time it is asked for.
 fn folder(root: &Path, name: &str) -> String {
     let folder = root.join(name);
     std::fs::create_dir_all(&folder).expect("a folder");
     std::fs::canonicalize(&folder)
-        .map(workbench_domain::plain_path)
+        .map(workbench_foundation::plain_path)
         .expect("resolves")
         .to_string_lossy()
         .into_owned()
@@ -169,7 +169,7 @@ fn only_a_program_that_named_its_launcher_sandboxes_on_windows() {
         Some("this program cannot start a Windows sandbox")
     );
 
-    workbench_tools::appcontainer::set_launcher(PathBuf::from("workbench-server.exe"));
+    workbench_sandbox::appcontainer::set_launcher(PathBuf::from("workbench-server.exe"));
     assert_eq!(
         sandbox_support(Platform::Windows, &env),
         SandboxSupport::Available("AppContainer")
@@ -229,7 +229,7 @@ fn the_setup_names_the_programs_folders_the_caches_and_a_folder_given() {
     let env = env(root.path());
     let elsewhere = folder(root.path(), "drive/study");
     let policy =
-        workbench_tools::appcontainer::setup_policy(&env, std::slice::from_ref(&elsewhere));
+        workbench_sandbox::appcontainer::setup_policy(&env, std::slice::from_ref(&elsewhere));
     assert!(policy.write.is_empty() && policy.read.is_empty() && policy.deny.is_empty());
     let shared = &policy.shared[0];
     assert!(shared.read.contains(&folder(root.path(), "tools")));
@@ -243,7 +243,7 @@ fn the_setup_names_the_programs_folders_the_caches_and_a_folder_given() {
 
 #[test]
 fn the_setup_run_as_an_administrator_is_given_each_folder_in_quotes() {
-    use workbench_tools::appcontainer::{SETUP_FLAG, setup_arguments};
+    use workbench_sandbox::appcontainer::{SETUP_FLAG, setup_arguments};
     assert_eq!(setup_arguments(&[]), SETUP_FLAG);
     let folders = [
         r"D:\My Studies\one".to_owned(),
@@ -263,7 +263,7 @@ fn the_setup_run_as_an_administrator_is_given_each_folder_in_quotes() {
 #[test]
 fn the_question_whether_the_sandbox_is_set_up_asks_about_every_folder_above_home() {
     // On Windows a path's parts are found by its backslashes; elsewhere this one is a single name.
-    let line = workbench_tools::appcontainer::probe_line(r"C:\Users\ada");
+    let line = workbench_sandbox::appcontainer::probe_line(r"C:\Users\ada");
     if cfg!(windows) {
         assert_eq!(
             line,

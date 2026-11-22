@@ -1,6 +1,5 @@
 //! Connections that only reach the public internet.
 use std::error::Error;
-use std::fmt;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -10,7 +9,7 @@ use std::sync::Arc;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::redirect::Policy;
 use url::Url;
-use workbench_domain::skills::public_address::is_private_host;
+use workbench_foundation::public_address::is_private_host;
 use workbench_telemetry::network::{SendNoted, client_builder};
 
 const NOT_ALLOWED: &str = "That address is not allowed";
@@ -38,16 +37,9 @@ impl Lookup for SystemLookup {
 }
 
 /// A connection refused because of where it would go; its message is the one the tool returns.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
 struct Refused(String);
-
-impl fmt::Display for Refused {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl Error for Refused {}
 
 /// The addresses of a host, refused when any of them is loopback, link-local or private. The name check alone lets a
 /// public domain that resolves to 127.0.0.1 or 192.168.x.x through; this looks up every address the name has and checks

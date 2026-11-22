@@ -94,7 +94,7 @@ fn random_id(bytes: usize) -> String {
     let mut id = String::with_capacity(bytes * 2);
     while id.len() < bytes * 2 {
         // new_id gives 8 random bytes; only a machine without randomness fails it, and then the clock has to do.
-        let part = workbench_domain::new_id("s").map_or_else(
+        let part = workbench_foundation::new_id("s").map_or_else(
             |_| format!("{:016x}", now_ms().to_bits()),
             |text| text[2..].to_owned(),
         );

@@ -5,7 +5,7 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use serde_json::{Value, json};
@@ -80,7 +80,7 @@ impl FileStore {
 
     fn locked(&self) -> MutexGuard<'_, Contents> {
         // A change that panicked leaves a state that is still valid JSON, which is what this lock protects.
-        self.contents.lock().unwrap_or_else(PoisonError::into_inner)
+        workbench_foundation::sync::locked(&self.contents)
     }
 
     /// Reads the state.

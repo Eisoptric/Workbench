@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Map, Value, json};
-use workbench_domain::js;
-use workbench_domain::time::{iso_time, now_millis};
+use workbench_foundation::js;
+use workbench_foundation::time::{iso_time, now_millis};
 
 use windows::Helper;
 

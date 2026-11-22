@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use tokio::process::Command;
-use workbench_tools::{continue_group, group_alive, in_own_group, pause_group, terminate};
+use workbench_sandbox::{continue_group, group_alive, in_own_group, pause_group, terminate};
 
 /// How long the file is, or nothing yet.
 fn length(path: &Path) -> u64 {

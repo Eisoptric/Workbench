@@ -43,10 +43,7 @@ pub trait KeyStore: Send + Sync {
 pub fn account(data_dir: &Path) -> String {
     let real = fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf());
     let digest = Sha256::digest(real.to_string_lossy().as_bytes());
-    format!(
-        "api-keys-{}",
-        &workbench_domain::research::hex(&digest)[..16]
-    )
+    format!("api-keys-{}", &workbench_foundation::hex(&digest)[..16])
 }
 
 /// A key saved as hex; anything that is not exactly one key counts as none.
@@ -157,7 +154,7 @@ impl KeyStore for Keychain {
         let line = format!(
             "add-generic-password -U -s \"{SERVICE}\" -a \"{}\" -l \"The app API key encryption\" -w {}\nquit\n",
             self.account,
-            workbench_domain::research::hex(key)
+            workbench_foundation::hex(key)
         );
         run(Path::new(SECURITY), &["-i"], &line)?;
         if self.get()?.as_ref() != Some(key) {
@@ -286,7 +283,7 @@ impl KeyStore for Libsecret {
                 "account",
                 &self.account,
             ],
-            &workbench_domain::research::hex(key),
+            &workbench_foundation::hex(key),
         )?;
         if !result.succeeded() {
             return Err(io::Error::other(format!(
@@ -323,7 +320,7 @@ impl KeyStore for KeyFile {
     fn set(&self, key: &Key) -> io::Result<()> {
         write_private(
             &self.file,
-            format!("{}\n", workbench_domain::research::hex(key)).as_bytes(),
+            format!("{}\n", workbench_foundation::hex(key)).as_bytes(),
         )
     }
 }

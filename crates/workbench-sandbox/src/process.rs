@@ -35,7 +35,7 @@ pub fn launch_env(command: &mut Command) {
 const GRACE: Duration = Duration::from_secs(2);
 
 /// A command with pipes for its output and nothing to read, in a group of its own.
-pub(crate) fn command(
+pub fn command(
     invocation: &Invocation,
     cwd: &Path,
     env: &[(std::ffi::OsString, std::ffi::OsString)],
@@ -339,7 +339,7 @@ pub fn continue_group(_pid: u32) -> bool {
 
 /// After the grace period, ends by force what `still_running` says is left. Without a runtime (the process is ending)
 /// there is nothing to wait in.
-pub(crate) fn force_after_grace(pid: u32, still_running: impl FnOnce() -> bool + Send + 'static) {
+pub fn force_after_grace(pid: u32, still_running: impl FnOnce() -> bool + Send + 'static) {
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         runtime.spawn(async move {
             tokio::time::sleep(GRACE).await;

@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
-use workbench_domain::js;
+use workbench_foundation::js;
 
 use crate::{Canvas, Failure, Region, Tree};
 
@@ -86,13 +86,13 @@ impl Helper {
     async fn command(&self) -> Result<Command, Failure> {
         if let Some(stand_in) = &self.stand_in {
             let mut command = Command::new(stand_in);
-            workbench_tools::no_window(&mut command);
+            workbench_sandbox::no_window(&mut command);
             return Ok(command);
         }
         let mut hash = Sha256::new();
         hash.update(SOURCE);
         hash.update(SCRIPT);
-        let name = workbench_domain::research::hex(&hash.finalize()[..6]);
+        let name = workbench_foundation::hex(&hash.finalize()[..6]);
         let folder = self.data_dir.join("desktop-helper");
         let unwritable = |error: std::io::Error| {
             Failure::plain(format!("The Windows desktop helper did not start: {error}"))
@@ -112,7 +112,7 @@ impl Helper {
             .map_or_else(|| PathBuf::from("C:\\Windows"), PathBuf::from);
         let mut command =
             Command::new(system.join("System32\\WindowsPowerShell\\v1.0\\powershell.exe"));
-        workbench_tools::no_window(&mut command);
+        workbench_sandbox::no_window(&mut command);
         command
             .args([
                 "-NoProfile",

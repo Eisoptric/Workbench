@@ -14,7 +14,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
-use workbench_domain::time::{iso_time, now_millis};
+use workbench_foundation::time::{iso_time, now_millis};
 
 /// A file only this user can read, replaced whole so a crash leaves the old one or the new one and never half of either.
 pub(crate) fn write_private(file: &Path, contents: &[u8]) -> io::Result<()> {

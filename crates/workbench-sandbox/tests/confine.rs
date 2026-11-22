@@ -2,7 +2,7 @@
 //! which order, since the later rule wins.
 use std::path::PathBuf;
 
-use workbench_tools::confine::{
+use workbench_sandbox::confine::{
     Confinement, bubblewrap_confinement, credential_folders, seatbelt_confinement,
 };
 

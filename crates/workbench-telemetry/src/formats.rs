@@ -3,7 +3,7 @@
 //!   exporter writes and its otlpjsonfile receiver reads.
 //! - SIEM: one ECS-style event per line (NDJSON) for Elastic, Splunk, Sentinel and similar.
 use serde_json::{Map, Value, json};
-use workbench_domain::time::iso_time;
+use workbench_foundation::time::iso_time;
 
 /// AGGREGATION_TEMPORALITY_CUMULATIVE: the runtime's metrics count up from process start.
 const CUMULATIVE: u8 = 2;
@@ -297,7 +297,7 @@ fn service(document: &Value) -> Value {
 
 /// Whether JavaScript counts an attribute as there.
 fn present(value: &Value) -> bool {
-    workbench_domain::js::truthy(Some(value))
+    workbench_foundation::js::truthy(Some(value))
 }
 
 fn span_event(document: &Value, span: &Value) -> Value {

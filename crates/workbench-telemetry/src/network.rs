@@ -13,7 +13,7 @@ use reqwest::redirect::{Attempt, Policy};
 use reqwest::{ClientBuilder, RequestBuilder, Response};
 use serde_json::{Value, json};
 use url::Url;
-use workbench_domain::time::{iso_time, now_millis};
+use workbench_foundation::time::{iso_time, now_millis};
 
 use crate::locked;
 use crate::span::{Kind, Span};

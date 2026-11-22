@@ -10,10 +10,10 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
-use workbench_domain::js;
-use workbench_domain::skills::public_address::parse_public_address;
-use workbench_tools::launch_env;
-use workbench_tools::public_host::{SystemLookup, assert_public_host};
+use workbench_foundation::js;
+use workbench_foundation::public_address::parse_public_address;
+use workbench_sandbox::launch_env;
+use workbench_sandbox::public_host::{SystemLookup, assert_public_host};
 
 use crate::cdp::{Cdp, CdpEvent};
 use crate::{
@@ -261,7 +261,7 @@ impl Chrome {
         let port_file = profile.join("DevToolsActivePort");
         let _ = std::fs::remove_file(&port_file);
         let mut command = tokio::process::Command::new(program);
-        workbench_tools::no_window(&mut command);
+        workbench_sandbox::no_window(&mut command);
         command
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile.display()));

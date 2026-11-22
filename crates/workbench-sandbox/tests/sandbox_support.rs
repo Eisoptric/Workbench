@@ -1,8 +1,8 @@
 //! What the sandbox says it can do on each system, and the folders it leaves writable there.
 use std::ffi::OsString;
 
-use workbench_tools::sandbox::{Platform, SandboxSupport, sandbox_support, writable_folders};
-use workbench_tools::shell::Env;
+use workbench_sandbox::sandbox::{Platform, SandboxSupport, sandbox_support, writable_folders};
+use workbench_sandbox::shell::Env;
 
 /// An environment of the given variables.
 fn env(entries: &[(&str, &str)]) -> Env {
