@@ -1,13 +1,14 @@
 {
   "name": "workbench-app",
   "private": true,
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "start": "cargo run -p workbench-server",
     "dev": "cargo run -p workbench-server",
-    "test": "cargo test && cargo build -p workbench-server -p workbench-cli && node --test contract/*.test.mjs desktop/test/*.test.mjs",
+    "test": "cargo test && cargo build -p workbench-server -p workbench-cli && node --test contract/*.test.mjs desktop/test/*.test.mjs scripts/advisories.test.mjs scripts/release.test.mjs",
     "lint": "npm run lint --prefix desktop",
     "typecheck": "cd desktop && npx tsc --noEmit",
+    "check": "npm run typecheck && npm run lint && node scripts/check-lockfiles.mjs && node scripts/contract-routes.mjs --check && cargo fmt --all --check && cargo clippy --all-targets",
     "desktop": "npm run dev --prefix desktop",
     "package": "npm run package --prefix desktop"
   }

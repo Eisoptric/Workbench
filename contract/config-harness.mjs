@@ -1,14 +1,14 @@
 // What the contract/config-*.test.mjs share: one isolated runtime with its token, temporary folders, fake servers, and
-// runs of agents on a scripted model. Nothing here reaches the developer's own the app, keys or any real provider.
+// runs of agents on a scripted model. Nothing here reaches the developer's own Workbench, keys or any real provider.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { request as apiRequest, settled, until as pollUntil } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
-/** A run that has ended, whichever way. */
-export const settled = (run) => !["queued", "running", "waiting_approval"].includes(run.status);
+export { settled };
 
 /** Starts a runtime on a temporary data folder, with a temporary folder for the test's own files. */
 export async function open({ env = {} } = {}) {
@@ -20,20 +20,8 @@ export async function open({ env = {} } = {}) {
 
   /** An API call with the token. Gives the status and the answer. */
   const call = async (method, route, body) => {
-    const token = (await readFile(path.join(dataDir, "runtime-token"), "utf8")).trim();
-    const response = await fetch(`${runtime.origin}${route}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    let answer = text;
-    try {
-      answer = text ? JSON.parse(text) : undefined;
-    } catch {
-      // Not JSON: a page.
-    }
-    return { status: response.status, body: answer };
+    const { status, body: answer } = await apiRequest(runtime, method, route, body);
+    return { status, body: answer };
   };
 
   /** The same, refusing any status but the expected ones, so a test reads as the flow it checks. */
@@ -51,15 +39,7 @@ export async function open({ env = {} } = {}) {
   };
 
   /** Polls until `done(value)` holds, and answers the value. */
-  const until = async (what, read, done, ms = 20_000) => {
-    const deadline = Date.now() + ms;
-    for (;;) {
-      const value = await read();
-      if (done(value)) return value;
-      if (Date.now() > deadline) throw new Error(`${what} did not happen: ${JSON.stringify(value)}`);
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  };
+  const until = (what, read, done, ms = 20_000) => pollUntil(what, read, done, { ms, interval: 25 });
 
   /** For `ms`, keeps checking that nothing more happens: `holds(value)` must stay true. */
   const stays = async (what, read, holds, ms = 1_200) => {
