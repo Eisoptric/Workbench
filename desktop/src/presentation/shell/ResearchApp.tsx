@@ -4,7 +4,7 @@ import { shortcut, t } from "../../domain/i18n.js";
 import { firstLaunchSteps, isWorkScreen, quitQuestion, screenLabels, statusText, windowTitle } from "../../domain/workbench.js";
 import type { Model, Profile, Project } from "../../domain/model.js";
 import { askToConfirm } from "../../infrastructure/confirm.js";
-import { useRuntimeStatus } from "../../infrastructure/runtime-status.js";
+import { useRuntimeStatus } from "./useRuntimeStatus.js";
 import { syncWindowControls } from "../../infrastructure/window-controls.js";
 import { AccessDialog, chooseFolder, homeShortened } from "../ProjectAccess.js";
 import { AssistantIcon, BoxIcon, CodeIcon, DataIcon, FlaskIcon, GearIcon, HomeIcon, InspectIcon, LineageIcon, SamplesIcon, ShieldIcon, TasksIcon } from "../ui/Icons.js";

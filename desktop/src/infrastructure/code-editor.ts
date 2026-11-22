@@ -15,7 +15,7 @@ import { gotoLine } from "@codemirror/search";
 import { countColumn, EditorSelection, EditorState, Prec, StateEffect, Text, type Extension, type StateCommand } from "@codemirror/state";
 import { keymap, type EditorView } from "@codemirror/view";
 import { basicSetup } from "codemirror";
-import { lean, tex, type EditorLanguage } from "./code-languages.ts";
+import { lean, tex, type EditorLanguage } from "../domain/code-languages.ts";
 
 /** Short additions to the languages' own snippets; placeholders remain editable with Tab. */
 const snippets: Partial<Record<EditorLanguage, Completion[]>> = {

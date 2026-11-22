@@ -6,7 +6,7 @@ import { countColumn, EditorState } from "@codemirror/state";
 import { diagnosticCount, openLintPanel } from "@codemirror/lint";
 import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
-import { createSourceState, sourceActionKeys, type EditorDocuments } from "../../domain/code-editor.js";
+import { createSourceState, sourceActionKeys, type EditorDocuments } from "../../infrastructure/code-editor.js";
 import type { EditorLanguage } from "../../domain/code-languages.js";
 import type { LanguageServices, LanguageBinding } from "../../application/language-services.js";
 import type { LanguageStatus } from "../../domain/language-server.js";
