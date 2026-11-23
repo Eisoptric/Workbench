@@ -6,6 +6,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+pub use mcp::{McpClient, McpError};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::AbortHandle;
 use workbench_browser::Browser;
@@ -14,7 +15,6 @@ pub use workbench_browser::Pace;
 use workbench_computer::Computer;
 pub(crate) use workbench_domain::sync::locked;
 use workbench_llm::{Broker, Http, LlmError};
-use workbench_mcp::{McpClient, McpError};
 use workbench_store::FileStore;
 use workbench_tools::jobs::JobTable;
 
@@ -32,6 +32,7 @@ pub mod context;
 pub mod events;
 pub mod hooks;
 pub mod logger;
+pub mod mcp;
 pub mod memory;
 mod origin;
 pub mod permissions;

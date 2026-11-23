@@ -17,7 +17,7 @@ use rmcp::transport::streamable_http_client::{
 use sse_stream::Sse;
 use url::Url;
 
-use crate::{HANDSHAKE, McpClient, McpError, Target, host_of, locked, secret_key};
+use super::{HANDSHAKE, McpClient, McpError, Target, host_of, locked, secret_key};
 
 /// Who may read a transport error: the message without the address, which can carry tokens.
 fn transport_error(error: &reqwest::Error) -> String {
@@ -95,9 +95,9 @@ struct NotedHttpClient {
 pub(crate) struct McpClientHandle {
     pub store: Arc<workbench_store::FileStore>,
     pub redirect_url: String,
-    pub open_browser: crate::OpenBrowser,
+    pub open_browser: super::OpenBrowser,
     pub http: reqwest::Client,
-    pub pending: Arc<Mutex<HashMap<String, crate::oauth::Pending>>>,
+    pub pending: Arc<Mutex<HashMap<String, super::oauth::Pending>>>,
 }
 
 impl NotedHttpClient {

@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use workbench_mcp::{McpClient, McpError, OpenBrowser, Target};
+use workbench_core::mcp::{McpClient, McpError, OpenBrowser, Target};
 use workbench_store::key_store::{KeyStoreName, key_store};
 use workbench_store::{FileStore, SecretsFile};
 

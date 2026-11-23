@@ -11,14 +11,18 @@ workspace = true
 
 [dependencies]
 base64 = "0.23"
+futures-util = { version = "0.3", default-features = false }
+getrandom = { version = "0.4", features = ["std"] }
+http = "1"
 percent-encoding = "2"
 regex = "1"
-reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "stream"] }
+rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+sse-stream = "0.2"
 workbench-browser = { path = "../../../workbench-sdk/crates/workbench-browser" }
 workbench-computer = { path = "../../../workbench-sdk/crates/workbench-computer" }
 workbench-domain = { path = "../workbench-domain" }
 workbench-llm = { path = "../workbench-llm" }
-workbench-mcp = { path = "../workbench-mcp" }
 workbench-programs = { path = "../../../workbench-sdk/crates/workbench-programs" }
 workbench-store = { path = "../workbench-store" }
 workbench-telemetry = { path = "../workbench-telemetry" }
