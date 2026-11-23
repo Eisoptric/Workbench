@@ -13,7 +13,7 @@ Read the method, write the code yourself, run the experiment and read every samp
 ![Rust](https://img.shields.io/badge/Rust-1.99-000000.svg?logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri&logoColor=white)
 ![Status](https://img.shields.io/badge/status-early%20preview-orange.svg)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/eisoptric/Workbench/badge)](https://scorecard.dev/viewer/?uri=github.com/eisoptric/Workbench)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Eisoptric/Workbench/badge)](https://scorecard.dev/viewer/?uri=github.com/Eisoptric/Workbench)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15780/badge)](https://www.bestpractices.dev/projects/15780)
 
 [A study in Eisoptric Workbench](#a-study-in-workbench) · [Screens](#the-screens) · [Assistant](#the-research-assistant) · [Install](#install) · [Models](#models) · [Security](#security-and-trust) · [API](#local-api) · [中文](README_ZH.md)

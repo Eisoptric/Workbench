@@ -13,7 +13,7 @@
 ![Rust](https://img.shields.io/badge/Rust-1.99-000000.svg?logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri&logoColor=white)
 ![Status](https://img.shields.io/badge/status-early%20preview-orange.svg)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/eisoptric/Workbench/badge)](https://scorecard.dev/viewer/?uri=github.com/eisoptric/Workbench)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Eisoptric/Workbench/badge)](https://scorecard.dev/viewer/?uri=github.com/Eisoptric/Workbench)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15780/badge)](https://www.bestpractices.dev/projects/15780)
 
 [在 Eisoptric Workbench 中做一項研究](#在-workbench-中做一項研究) · [畫面](#畫面) · [研究助理](#研究助理) · [安裝](#安裝) · [模型](#模型) · [安全](#安全與信任) · [API](#本機-api) · [English](README.md)
