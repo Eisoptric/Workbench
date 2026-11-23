@@ -32,3 +32,8 @@ reason = "zbus_names (unmaintained), Linux only, through tauri-plugin-single-ins
 id = "RUSTSEC-2026-0372"
 ignoreUntil = 2027-05-07
 reason = "zvariant_derive (unmaintained), Linux only, through tauri-plugin-single-instance's zbus 5"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-05-07
+reason = "chrono (unmaintained, no known vulnerability), through the official rmcp MCP SDK"
