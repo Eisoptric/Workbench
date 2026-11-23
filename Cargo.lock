@@ -5737,9 +5737,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
- "workbench-foundation",
- "workbench-sandbox",
- "workbench-telemetry",
+ "url",
 ]
 
 [[package]]
@@ -5757,12 +5755,11 @@ name = "workbench-computer"
 version = "0.7.0"
 dependencies = [
  "base64 0.23.1",
+ "jiff",
  "regex",
  "serde_json",
  "sha2 0.11.1",
  "tokio",
- "workbench-foundation",
- "workbench-sandbox",
 ]
 
 [[package]]
@@ -5784,7 +5781,6 @@ dependencies = [
  "workbench-browser",
  "workbench-computer",
  "workbench-domain",
- "workbench-foundation",
  "workbench-llm",
  "workbench-mcp",
  "workbench-programs",
@@ -5818,23 +5814,14 @@ dependencies = [
 name = "workbench-domain"
 version = "0.7.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "jiff",
  "regex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
  "similar",
  "ts-rs",
- "url",
- "workbench-foundation",
-]
-
-[[package]]
-name = "workbench-foundation"
-version = "0.7.0"
-dependencies = [
- "getrandom 0.4.3",
- "jiff",
- "serde_json",
  "url",
 ]
 
@@ -5873,9 +5860,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "url",
- "workbench-foundation",
- "workbench-store",
- "workbench-telemetry",
 ]
 
 [[package]]
@@ -5886,9 +5870,6 @@ dependencies = [
  "reqwest",
  "sha2 0.11.1",
  "tokio",
- "workbench-foundation",
- "workbench-sandbox",
- "workbench-telemetry",
 ]
 
 [[package]]
@@ -5905,8 +5886,6 @@ dependencies = [
  "tokio",
  "url",
  "workbench-appcontainer",
- "workbench-foundation",
- "workbench-telemetry",
 ]
 
 [[package]]
@@ -5945,8 +5924,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "tempfile",
  "tokio",
- "workbench-foundation",
+ "workbench-domain",
  "workbench-telemetry",
 ]
 
@@ -5956,9 +5936,10 @@ version = "0.7.0"
 dependencies = [
  "reqwest",
  "serde_json",
+ "tempfile",
  "tokio",
  "url",
- "workbench-foundation",
+ "workbench-domain",
 ]
 
 [[package]]
@@ -5976,7 +5957,6 @@ dependencies = [
  "tokio",
  "url",
  "workbench-domain",
- "workbench-foundation",
  "workbench-sandbox",
 ]
 

@@ -17,12 +17,11 @@ reqwest = { version = "0.13", default-features = false, features = ["native-tls"
 workbench-browser = { path = "../../../workbench-sdk/crates/workbench-browser" }
 workbench-computer = { path = "../../../workbench-sdk/crates/workbench-computer" }
 workbench-domain = { path = "../workbench-domain" }
-workbench-foundation = { path = "../../../workbench-sdk/crates/workbench-foundation" }
 workbench-llm = { path = "../workbench-llm" }
 workbench-mcp = { path = "../../../workbench-sdk/crates/workbench-mcp" }
 workbench-programs = { path = "../../../workbench-sdk/crates/workbench-programs" }
-workbench-store = { path = "../../../workbench-sdk/crates/workbench-store" }
-workbench-telemetry = { path = "../../../workbench-sdk/crates/workbench-telemetry" }
+workbench-store = { path = "../workbench-store" }
+workbench-telemetry = { path = "../workbench-telemetry" }
 workbench-tools = { path = "../workbench-tools" }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 sha2 = "0.11"

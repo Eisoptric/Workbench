@@ -311,7 +311,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
-pub use workbench_foundation::hex;
+pub use crate::hex;
 
 /// What identifies a frozen version's content: equal for the same content whatever order its keys came in.
 pub fn fingerprint(content: &Value) -> String {

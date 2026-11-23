@@ -12,8 +12,8 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Child;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use workbench_foundation::sync::locked;
-use workbench_foundation::time::{iso_time, now_millis};
+use workbench_domain::sync::locked;
+use workbench_domain::time::{iso_time, now_millis};
 
 use crate::process;
 use crate::shell::Invocation;

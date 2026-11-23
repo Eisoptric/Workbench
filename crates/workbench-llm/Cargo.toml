@@ -16,8 +16,8 @@ regex = "1"
 # The operating system's TLS, so its trusted certificates apply and no C toolchain is needed on macOS or Windows.
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
 workbench-domain = { path = "../workbench-domain" }
-workbench-store = { path = "../../../workbench-sdk/crates/workbench-store" }
-workbench-telemetry = { path = "../../../workbench-sdk/crates/workbench-telemetry" }
+workbench-store = { path = "../workbench-store" }
+workbench-telemetry = { path = "../workbench-telemetry" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"
