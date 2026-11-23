@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sandboxReason } from "../src/domain/sandbox.ts";
 
-const sandbox = new URL("../../crates/workbench-sandbox/src/", import.meta.url);
+const sandbox = new URL("../../../workbench-sdk/crates/workbench-sandbox/src/", import.meta.url);
 const core = new URL("../../crates/workbench-core/src/", import.meta.url);
 const runtime = ["sandbox.rs", "appcontainer.rs"].map((name) => readFileSync(new URL(name, sandbox), "utf8")).join("\n") + readFileSync(new URL("admin.rs", core), "utf8");
 const known = [...readFileSync(new URL("../src/domain/sandbox.ts", import.meta.url), "utf8").matchAll(/case "(.+)":/g)].map((match) => match[1]);

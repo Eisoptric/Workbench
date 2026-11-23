@@ -1,8 +1,8 @@
 # SDK & Crate Decoupling Architecture
 
-Low-level infrastructure crates are separated from product rules (`workbench-domain`, `workbench-core`, `workbench-server`) so they can evolve and be published as standalone open-source Rust SDKs.
+Low-level infrastructure crates have been decoupled from product rules (`workbench-domain`, `workbench-core`, `workbench-server`) and extracted into the standalone open-source workspace at `../workbench-sdk`.
 
-## Standalone SDK Layer (zero product-domain dependencies)
+## Standalone SDK Repository (`../workbench-sdk`, 9 crates, zero product dependencies)
 
 ```text
 workbench-foundation          (pure primitives: time, js, hex, plain_path, public_address, sync::locked)
@@ -13,17 +13,13 @@ workbench-foundation          (pure primitives: time, js, hex, plain_path, publi
  │    ├── workbench-browser   (local Chrome CDP + macOS Safari browser automation SDK)
  │    └── workbench-programs  (resumable SHA-512 archive installer, system tar unpacker, bounded CLI prober)
  └── workbench-store          (AES-GCM encrypted secrets + OS key store + atomic JSON store)
+      └── workbench-mcp       (MCP client: rmcp stdio, Streamable HTTP, eventsource-stream SSE, OAuth 2.1 PKCE)
 ```
 
-## Product Layer
+## Workbench Product Layer (`crates/`)
 
-- `workbench-domain`: Pure product rules, permissions, research schema, prompts, diffs (re-exports primitives from `workbench-foundation`).
+- `workbench-domain`: Pure product rules, permissions, research schema, prompts, diffs (re-exports primitives from `workbench-foundation`; generates shared TS types via `ts-rs`).
 - `workbench-tools`: Agent-facing tool implementations (`file`, `code`, `web`, `general`, `jobs`), re-exporting `workbench-sandbox`.
-- `workbench-llm` / `workbench-mcp`: Model providers and MCP client.
-- `workbench-core`: Agent loop, research workflows (`research/remote/{mod,worker}.rs`), GitHub/git (`origin/{mod,github}.rs`).
-- `workbench-server` / `workbench-cli`: HTTP API and terminal client.
-
-## Next Roadmap Steps
-
-1. **Phase 2 (remaining)**: Adopt `ts-rs` for Rust → TypeScript domain type generation, `@tanstack/react-query` in `desktop/` (re-enabling `react-hooks/exhaustive-deps`), and evaluate `rmcp` (official Rust MCP SDK) with `SendNoted` network observability.
-2. **Phase 3 (remaining)**: Extract `claude_code` + `codex` + `agent_sessions` + `agent_programs` from `workbench-core` into a standalone `agent-cli-bridge` SDK crate, and publish the standalone SDK crates once public API names are finalized.
+- `workbench-llm`: Multi-provider LLM client (OpenAI, Claude, Gemini, DeepSeek, local servers).
+- `workbench-core`: Agent loop, research workflows (`research/remote/{mod,worker}.rs`), GitHub/git (`origin/{mod,github}.rs`), Claude Code & Codex session bridges.
+- `workbench-server` / `workbench-cli`: Local HTTP API and terminal client.

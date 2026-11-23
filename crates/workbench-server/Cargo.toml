@@ -13,11 +13,11 @@ workspace = true
 axum = "0.8"
 futures-util = { version = "0.3", default-features = false }
 getrandom = { version = "0.4", features = ["std"] }
-workbench-appcontainer = { path = "../workbench-appcontainer" }
+workbench-appcontainer = { path = "../../../workbench-sdk/crates/workbench-appcontainer" }
 workbench-core = { path = "../workbench-core" }
 workbench-domain = { path = "../workbench-domain" }
-workbench-store = { path = "../workbench-store" }
-workbench-telemetry = { path = "../workbench-telemetry" }
+workbench-store = { path = "../../../workbench-sdk/crates/workbench-store" }
+workbench-telemetry = { path = "../../../workbench-sdk/crates/workbench-telemetry" }
 workbench-tools = { path = "../workbench-tools" }
 regex = "1"
 serde = "1"

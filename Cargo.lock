@@ -5731,12 +5731,10 @@ dependencies = [
 name = "workbench-browser"
 version = "0.7.0"
 dependencies = [
- "axum",
  "base64 0.23.1",
  "futures-util",
  "reqwest",
  "serde_json",
- "tempfile",
  "tokio",
  "tokio-tungstenite",
  "workbench-foundation",
@@ -5762,7 +5760,6 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2 0.11.1",
- "tempfile",
  "tokio",
  "workbench-foundation",
  "workbench-sandbox",
@@ -5865,7 +5862,6 @@ dependencies = [
 name = "workbench-mcp"
 version = "0.7.0"
 dependencies = [
- "axum",
  "base64 0.23.1",
  "eventsource-stream",
  "futures-util",
@@ -5874,7 +5870,6 @@ dependencies = [
  "rmcp",
  "serde_json",
  "sha2 0.11.1",
- "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -5890,7 +5885,6 @@ dependencies = [
  "base64 0.23.1",
  "reqwest",
  "sha2 0.11.1",
- "tempfile",
  "tokio",
  "workbench-foundation",
  "workbench-sandbox",
@@ -5907,10 +5901,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
- "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "ts-rs",
  "url",
  "workbench-appcontainer",
  "workbench-foundation",
@@ -5953,7 +5945,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "tempfile",
  "tokio",
  "workbench-foundation",
  "workbench-telemetry",
@@ -5965,7 +5956,6 @@ version = "0.7.0"
 dependencies = [
  "reqwest",
  "serde_json",
- "tempfile",
  "tokio",
  "url",
  "workbench-foundation",

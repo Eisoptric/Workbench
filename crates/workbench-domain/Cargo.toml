@@ -17,7 +17,7 @@ sha2 = "0.11"
 # The line diff behind the reviews of agent edits.
 similar = { version = "3", default-features = false }
 url = "2"
-workbench-foundation = { path = "../workbench-foundation" }
+workbench-foundation = { path = "../../../workbench-sdk/crates/workbench-foundation" }
 
 [dev-dependencies]
 ts-rs = "12"
