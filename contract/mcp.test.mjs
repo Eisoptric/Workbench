@@ -98,24 +98,13 @@ for (const stream of [false, true]) {
   });
 }
 
-test("a server that only takes plain JSON-RPC still works", async () => {
-  const url = await serve((_request, raw, response) => {
-    const message = JSON.parse(raw);
-    const result = message.method === "initialize" ? { ok: true } : mcpAnswer(message);
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-  });
-  const server = await api("POST", "/connections/mcp", { name: "Plain", url });
-  assert.deepEqual((await api("POST", `/connections/mcp/${server.id}/discover`)).tools.map((tool) => tool.toolId), ["lookup"]);
-  const { run } = await agentCalling(server.id, "lookup");
-  assert.equal(run.status, "completed", run.error);
-  await api("DELETE", `/mcp/${server.id}`);
-});
-
 test("a tool's failure is a failed step the model hears about, and its refusal is a denied one", async () => {
-  const url = await serve((_request, raw, response) => {
+  const url = await serve((request, raw, response) => {
+    if (request.method !== "POST") return response.writeHead(405).end();
     const message = JSON.parse(raw);
+    if (message.id === undefined) return response.writeHead(202).end();
     const refused = message.method === "tools/call";
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...(refused ? { error: { code: 1, message: "policy_denied" } } : { result: message.method === "initialize" ? { ok: true } : mcpAnswer(message) }) }));
+    response.writeHead(200, { "mcp-session-id": "session-1", "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...(refused ? { error: { code: 1, message: "policy_denied" } } : { result: mcpAnswer(message) }) }));
   });
   const server = await api("POST", "/connections/mcp", { name: "Refusing", url });
   await api("POST", `/connections/mcp/${server.id}/discover`);

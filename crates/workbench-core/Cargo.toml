@@ -18,7 +18,7 @@ workbench-browser = { path = "../../../workbench-sdk/crates/workbench-browser" }
 workbench-computer = { path = "../../../workbench-sdk/crates/workbench-computer" }
 workbench-domain = { path = "../workbench-domain" }
 workbench-llm = { path = "../workbench-llm" }
-workbench-mcp = { path = "../../../workbench-sdk/crates/workbench-mcp" }
+workbench-mcp = { path = "../workbench-mcp" }
 workbench-programs = { path = "../../../workbench-sdk/crates/workbench-programs" }
 workbench-store = { path = "../workbench-store" }
 workbench-telemetry = { path = "../workbench-telemetry" }

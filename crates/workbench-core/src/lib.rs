@@ -6,7 +6,6 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::AbortHandle;
 use workbench_browser::Browser;
@@ -15,101 +14,9 @@ pub use workbench_browser::Pace;
 use workbench_computer::Computer;
 pub(crate) use workbench_domain::sync::locked;
 use workbench_llm::{Broker, Http, LlmError};
-use workbench_mcp::{BoxFuture, McpClient, McpError, McpObserver, SecretStore};
+use workbench_mcp::{McpClient, McpError};
 use workbench_store::FileStore;
-use workbench_telemetry::network::{SendNoted, client_builder};
-use workbench_telemetry::{Kind, Span};
 use workbench_tools::jobs::JobTable;
-
-struct StoreSecrets(Arc<FileStore>);
-
-impl SecretStore for StoreSecrets {
-    fn secret(&self, key: &str) -> Option<String> {
-        self.0.secret(key)
-    }
-    fn put_secret<'a>(&'a self, key: &'a str, value: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        let store = Arc::clone(&self.0);
-        let (key, value) = (key.to_owned(), value.to_owned());
-        Box::pin(async move {
-            store
-                .put_secret(&key, &value)
-                .await
-                .map_err(|error| error.to_string())
-        })
-    }
-    fn delete_secret<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        let store = Arc::clone(&self.0);
-        let key = key.to_owned();
-        Box::pin(async move {
-            store
-                .delete_secret(&key)
-                .await
-                .map_err(|error| error.to_string())
-        })
-    }
-}
-
-struct TelemetryMcpObserver;
-
-impl McpObserver for TelemetryMcpObserver {
-    fn client_builder(&self) -> reqwest::ClientBuilder {
-        client_builder()
-    }
-    fn send(
-        &self,
-        request: reqwest::RequestBuilder,
-    ) -> BoxFuture<'static, reqwest::Result<reqwest::Response>> {
-        Box::pin(async move { request.send_noted().await })
-    }
-    fn observe_rpc<'a>(
-        &'a self,
-        method: &'a str,
-        host: &'a str,
-        tool: Option<&'a str>,
-        control: &'static [&'static str],
-        on_fail: Box<dyn FnOnce() + Send + 'a>,
-        call: BoxFuture<'a, Result<Value, McpError>>,
-    ) -> BoxFuture<'a, Result<Value, McpError>> {
-        Box::pin(async move {
-            let name = tool.map_or_else(
-                || format!("mcp {method}"),
-                |tool| format!("mcp {method} {tool}"),
-            );
-            let base = serde_json::json!({ "mcp.method.name": method, "server.address": host });
-            let mut attributes = base.clone();
-            attributes["rpc.system"] = serde_json::json!("jsonrpc");
-            if let Some(tool) = tool {
-                attributes["gen_ai.tool.name"] = serde_json::json!(tool);
-            }
-            let span = Span::start(name, Kind::Client, attributes);
-            let started = std::time::Instant::now();
-            let answer = span.scope(call).await;
-            let outcome = match &answer {
-                Ok(_) => "ok".to_owned(),
-                Err(McpError::Failed(message)) if control.contains(&message.as_str()) => {
-                    message.clone()
-                }
-                Err(McpError::Failed(message)) => {
-                    span.fail(message, "error");
-                    on_fail();
-                    "error".to_owned()
-                }
-                Err(_) => "sign_in_required".to_owned(),
-            };
-            if outcome != "ok" {
-                span.set("workbench.mcp.outcome", outcome.as_str());
-            }
-            let mut labels = base;
-            labels["workbench.mcp.outcome"] = serde_json::json!(outcome);
-            workbench_telemetry::record(
-                "workbench.mcp.request.duration",
-                started.elapsed().as_secs_f64(),
-                labels,
-            );
-            answer
-        })
-    }
-}
 
 pub mod admin;
 pub mod agent_programs;
@@ -269,11 +176,10 @@ impl Kernel {
     pub fn with_http(store: Arc<FileStore>, http: Http) -> Result<Arc<Self>, CoreError> {
         Ok(Arc::new(Self {
             broker: Broker::new(Arc::clone(&store), http),
-            mcp: McpClient::with_observer(
-                Arc::new(StoreSecrets(Arc::clone(&store))),
+            mcp: McpClient::new(
+                Arc::clone(&store),
                 oauth_redirect(),
                 Arc::new(open_in_browser),
-                Arc::new(TelemetryMcpObserver),
             )?,
             computer: Computer::new(store.root()),
             browser: Browser::new(
