@@ -1,18 +1,18 @@
-//! A local server: a program this client starts and speaks MCP with over its stdin and stdout. Its stderr is kept (the last few
-//! KB) so a server that fails to start says why. The process ends when the session is closed or the runtime exits.
+//! A local MCP server run over stdio through the official `rmcp` client SDK.
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{Mutex as AsyncMutex, oneshot};
+use rmcp::ServiceExt;
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::{RoleClient, RunningService};
+use rmcp::transport::TokioChildProcess;
+use serde_json::Value;
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 use tokio::task::JoinHandle;
 
-use crate::remote::{Waiting, route};
-use crate::{HANDSHAKE, LocalCommand, McpError, initialize_params, locked, result_of};
+use crate::{HANDSHAKE, LocalCommand, McpError, locked};
 
 /// Bytes of a server's stderr that are kept.
 const STDERR_LIMIT: usize = 4000;
@@ -37,39 +37,25 @@ const INHERITED: [&str; 13] = [
 ];
 
 pub(crate) struct LocalSession {
-    stdin: Arc<AsyncMutex<ChildStdin>>,
-    waiting: Waiting,
-    next_id: AtomicU64,
-    reader: JoinHandle<()>,
+    service: RunningService<RoleClient, ()>,
     errors: JoinHandle<()>,
-    // Ends the process when the session goes.
-    _child: Child,
 }
 
 impl Drop for LocalSession {
     fn drop(&mut self) {
-        self.reader.abort();
         self.errors.abort();
     }
 }
 
 impl LocalSession {
     pub(crate) async fn start(command: &LocalCommand) -> Result<Self, McpError> {
-        // A missing working folder fails the start with a misleading message about the program itself.
         if let Some(cwd) = &command.cwd {
             tokio::fs::create_dir_all(cwd)
                 .await
                 .map_err(|error| McpError::failed(error.to_string()))?;
         }
         let mut prepared = Command::new(&command.program);
-        prepared
-            .args(&command.args)
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        // The runtime has no console on Windows, so a server would get a visible one of its own unless told not to.
+        prepared.args(&command.args).env_clear();
         #[cfg(windows)]
         {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -85,7 +71,7 @@ impl LocalSession {
             prepared.current_dir(cwd);
         }
         let failed = |reason: &str, stderr: &str| {
-            let detail = stderr
+            let detail: String = stderr
                 .trim()
                 .lines()
                 .rev()
@@ -105,18 +91,14 @@ impl LocalSession {
                 command.program
             ))
         };
-        let mut child = prepared
+        let (transport, stderr) = TokioChildProcess::builder(prepared)
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| failed(&error.to_string(), ""))?;
-        let (Some(stdin), Some(stdout), Some(stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
-        else {
-            return Err(failed("its pipes did not open", ""));
-        };
         let kept = Arc::new(Mutex::new(Vec::new()));
         let written = Arc::clone(&kept);
         let errors = tokio::spawn(async move {
-            let mut stderr = stderr;
+            let Some(mut stderr) = stderr else { return };
             let mut chunk = [0_u8; 1024];
             while let Ok(read) = stderr.read(&mut chunk).await {
                 if read == 0 {
@@ -128,93 +110,53 @@ impl LocalSession {
                 bytes.drain(..extra);
             }
         });
-        let waiting: Waiting = Arc::default();
-        let routed = Arc::clone(&waiting);
-        let stdin = Arc::new(AsyncMutex::new(stdin));
-        let answering = Arc::clone(&stdin);
-        let reader = tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                match serde_json::from_str::<Value>(&line) {
-                    Ok(message)
-                        if message.get("method").is_some() && message.get("id").is_some() =>
-                    {
-                        let _ = write_line(&answering, &answer_to(&message)).await;
-                    }
-                    _ => route(&routed, &line),
-                }
+        let outcome = tokio::time::timeout(HANDSHAKE * 4, ().serve(transport)).await;
+        match outcome {
+            Ok(Ok(service)) => Ok(Self { service, errors }),
+            Ok(Err(error)) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let stderr = String::from_utf8_lossy(&locked(&kept)).into_owned();
+                Err(failed(&error.to_string(), &stderr))
             }
-            // The program ended: nothing more will be answered.
-            locked(&routed).clear();
-        });
-        let session = Self {
-            stdin,
-            waiting,
-            next_id: AtomicU64::new(1),
-            reader,
-            errors,
-            _child: child,
-        };
-        let starting = async {
-            session.request("initialize", initialize_params()).await?;
-            session
-                .send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
-                .await
-        };
-        // A package runner may download the server first.
-        let outcome = tokio::time::timeout(HANDSHAKE * 4, starting).await;
-        let reason = match outcome {
-            Ok(Ok(())) => None,
-            Ok(Err(error)) => Some(error.to_string()),
-            Err(_) => Some("it did not finish the handshake in time".to_owned()),
-        };
-        if let Some(reason) = reason {
-            // Lets what it just wrote arrive.
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            let stderr = String::from_utf8_lossy(&locked(&kept)).into_owned();
-            return Err(failed(&reason, &stderr));
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let stderr = String::from_utf8_lossy(&locked(&kept)).into_owned();
+                Err(failed("it did not finish the handshake in time", &stderr))
+            }
         }
-        Ok(session)
-    }
-
-    async fn send(&self, message: &Value) -> Result<(), McpError> {
-        write_line(&self.stdin, message).await
     }
 
     pub(crate) async fn request(&self, method: &str, params: Value) -> Result<Value, McpError> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = oneshot::channel();
-        locked(&self.waiting).insert(id, sender);
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
-            .await?;
-        let answer = receiver
-            .await
-            .map_err(|_| McpError::failed("The MCP server stopped"))?;
-        result_of(answer)
-    }
-}
-
-/// One message to the program.
-async fn write_line(stdin: &AsyncMutex<ChildStdin>, message: &Value) -> Result<(), McpError> {
-    let mut line = message.to_string();
-    line.push('\n');
-    let mut stdin = stdin.lock().await;
-    stdin
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|error| McpError::failed(format!("The MCP server closed its input: {error}")))?;
-    stdin
-        .flush()
-        .await
-        .map_err(|error| McpError::failed(error.to_string()))
-}
-
-/// The answer to a server's own request: `ping` is answered, anything else is not something this client offers.
-fn answer_to(request: &Value) -> Value {
-    let id = request.get("id").cloned().unwrap_or(Value::Null);
-    if request.get("method").and_then(Value::as_str) == Some("ping") {
-        json!({ "jsonrpc": "2.0", "id": id, "result": {} })
-    } else {
-        json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "Method not found" } })
+        match method {
+            "tools/list" => {
+                let result = self
+                    .service
+                    .list_tools(None)
+                    .await
+                    .map_err(|error| McpError::failed(error.to_string()))?;
+                serde_json::to_value(result).map_err(|error| McpError::failed(error.to_string()))
+            }
+            "tools/call" => {
+                let name = params
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let arguments = params.get("arguments").and_then(Value::as_object).cloned();
+                let mut call = CallToolRequestParams::new(name);
+                if let Some(arguments) = arguments {
+                    call = call.with_arguments(arguments);
+                }
+                let result = self
+                    .service
+                    .call_tool(call)
+                    .await
+                    .map_err(|error| McpError::failed(error.to_string()))?;
+                serde_json::to_value(result).map_err(|error| McpError::failed(error.to_string()))
+            }
+            other => Err(McpError::failed(format!(
+                "Unsupported local MCP method: {other}"
+            ))),
+        }
     }
 }

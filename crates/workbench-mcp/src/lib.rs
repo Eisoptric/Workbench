@@ -16,7 +16,6 @@ use workbench_telemetry::{Kind, Span};
 mod local;
 mod oauth;
 mod remote;
-mod sse;
 
 use local::LocalSession;
 use oauth::Pending;

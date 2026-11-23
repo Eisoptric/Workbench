@@ -4,13 +4,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use workbench_telemetry::network::SendNoted;
 
+use eventsource_stream::Eventsource;
+use futures_util::StreamExt;
 use reqwest::{RequestBuilder, Response, StatusCode};
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use url::Url;
 
-use crate::sse::SseParser;
 use crate::{
     HANDSHAKE, McpClient, McpError, PROTOCOL_VERSION, Target, initialize_params, locked, result_of,
     secret_key,
@@ -212,7 +213,7 @@ enum PostFailure {
 }
 
 /// The answer to request `id`, from a JSON body or an event stream.
-async fn read_answer(mut response: Response, id: u64) -> Result<Value, String> {
+async fn read_answer(response: Response, id: u64) -> Result<Value, String> {
     let kind = response
         .headers()
         .get("content-type")
@@ -226,19 +227,14 @@ async fn read_answer(mut response: Response, id: u64) -> Result<Value, String> {
             .map_err(|error| transport_error(&error))?;
         return serde_json::from_str(&text).map_err(|_| "it did not answer with JSON".to_owned());
     }
-    let mut parser = SseParser::default();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| transport_error(&error))?
-    {
-        for event in parser.feed(&chunk) {
-            if let Ok(message) = serde_json::from_str::<Value>(&event.data)
-                && message.get("id").and_then(Value::as_u64) == Some(id)
-                && message.get("method").is_none()
-            {
-                return Ok(message);
-            }
+    let mut stream = response.bytes_stream().eventsource();
+    while let Some(item) = stream.next().await {
+        let event = item.map_err(|error| error.to_string())?;
+        if let Ok(message) = serde_json::from_str::<Value>(&event.data)
+            && message.get("id").and_then(Value::as_u64) == Some(id)
+            && message.get("method").is_none()
+        {
+            return Ok(message);
         }
     }
     Err("the stream ended before the answer".to_owned())
@@ -279,42 +275,35 @@ impl SseSession {
             client,
             target,
         );
-        let mut response = request
+        let response = request
             .send_noted()
             .await
             .map_err(|error| transport_error(&error))?;
         if !response.status().is_success() {
             return Err(format!("it answered {}", response.status().as_u16()));
         }
-        let mut parser = SseParser::default();
+        let mut stream = response.bytes_stream().eventsource();
         let mut endpoint = None;
-        let mut early = Vec::new();
         while endpoint.is_none() {
-            let chunk = response
-                .chunk()
+            let event = stream
+                .next()
                 .await
-                .map_err(|error| transport_error(&error))?
-                .ok_or("the stream ended before naming an address")?;
-            for event in parser.feed(&chunk) {
-                if event.name == "endpoint" && endpoint.is_none() {
-                    let joined = base.join(&event.data).map_err(|error| error.to_string())?;
-                    // A server names only an address of its own, so the credential never goes elsewhere.
-                    if joined.origin() != base.origin() {
-                        return Err("it named an address on another host".to_owned());
-                    }
-                    endpoint = Some(joined);
-                } else {
-                    early.push(event);
+                .ok_or("the stream ended before naming an address")?
+                .map_err(|error| error.to_string())?;
+            if event.event == "endpoint" {
+                let joined = base.join(&event.data).map_err(|error| error.to_string())?;
+                // A server names only an address of its own, so the credential never goes elsewhere.
+                if joined.origin() != base.origin() {
+                    return Err("it named an address on another host".to_owned());
                 }
+                endpoint = Some(joined);
             }
         }
         let waiting: Waiting = Arc::default();
         let routed = Arc::clone(&waiting);
         let reader = tokio::spawn(async move {
-            while let Ok(Some(chunk)) = response.chunk().await {
-                for event in parser.feed(&chunk) {
-                    route(&routed, &event.data);
-                }
+            while let Some(Ok(event)) = stream.next().await {
+                route(&routed, &event.data);
             }
             // The stream ended: nothing more will be answered.
             locked(&routed).clear();
