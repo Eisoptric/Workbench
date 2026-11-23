@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "../../application/desktop";
 import { t } from "../../domain/i18n";
 import type { PermissionLayer, PermissionRule, PermissionScope, Project } from "../../domain/model";
@@ -142,19 +143,24 @@ export function RulesEditor(props: { layer: PermissionLayer; target: { projectId
 
 /** Settings → Permissions: the user's rules, then a project's or an agent's. */
 export function PermissionsPage(props: { projects: Project[]; agents: { id: string; name: string }[]; onError: (message: string) => void }) {
+  const queryClient = useQueryClient();
   const [target, setTarget] = useState<string>("user");
-  const [layers, setLayers] = useState<PermissionLayer[]>([]);
-  const [loading, setLoading] = useState(true);
   const selection = target.startsWith("project:") ? { projectId: target.slice(8) } : target.startsWith("agent:") ? { agentId: target.slice(6) } : {};
+  const queryKey = ["settings", "permissions", target] as const;
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    desktop.admin.permissions(selection)
-      .then((result) => { if (active) { setLayers(result); setLoading(false); } })
-      .catch((reason) => { if (active) { props.onError(reason instanceof Error ? reason.message : t("Could not load permissions")); setLoading(false); } });
-    return () => { active = false; };
-  }, [target]);
+  const { data: layers = [], isPending: loading } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      try {
+        return await desktop.admin.permissions(selection);
+      } catch (reason) {
+        props.onError(reason instanceof Error ? reason.message : t("Could not load permissions"));
+        throw reason;
+      }
+    },
+  });
+
+  const setLayers = (next: PermissionLayer[]) => queryClient.setQueryData(queryKey, next);
 
   const shown = layers.filter((layer) => (target === "user" ? layer.scope === "user" : layer.scope !== "user"));
   return (
@@ -198,14 +204,20 @@ export function PermissionsPage(props: { projects: Project[]; agents: { id: stri
 
 /** The project settings tab's section: the project's rules and the ones read from its files. */
 export function ProjectPermissions(props: { project: Project; onError: (message: string) => void }) {
-  const [layers, setLayers] = useState<PermissionLayer[]>([]);
-  useEffect(() => {
-    let active = true;
-    desktop.admin.permissions({ projectId: props.project.id })
-      .then((result) => { if (active) setLayers(result); })
-      .catch((reason) => { if (active) props.onError(reason instanceof Error ? reason.message : t("Could not load permissions")); });
-    return () => { active = false; };
-  }, [props.project.id]);
+  const queryClient = useQueryClient();
+  const queryKey = ["settings", "permissions", `project:${props.project.id}`] as const;
+  const { data: layers = [] } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      try {
+        return await desktop.admin.permissions({ projectId: props.project.id });
+      } catch (reason) {
+        props.onError(reason instanceof Error ? reason.message : t("Could not load permissions"));
+        throw reason;
+      }
+    },
+  });
+  const setLayers = (next: PermissionLayer[]) => queryClient.setQueryData(queryKey, next);
   return (
     <div>
       <SectionTitle>{t("Permissions")}</SectionTitle>
