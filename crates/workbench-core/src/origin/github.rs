@@ -111,12 +111,23 @@ impl Origin<'_> {
         self.api(Method::GET, route, None).await
     }
 
+    async fn post(&self, route: &str, body: &Value) -> Answer {
+        self.api(Method::POST, route, Some(body)).await
+    }
+
+    async fn patch(&self, route: &str, body: &Value) -> Answer {
+        self.api(Method::PATCH, route, Some(body)).await
+    }
+
+    async fn put(&self, route: &str, body: &Value) -> Answer {
+        self.api(Method::PUT, route, Some(body)).await
+    }
+
     pub(super) async fn graphql(&self, query: &str, variables: Value) -> Answer {
         let result = self
-            .api(
-                Method::POST,
+            .post(
                 "/graphql",
-                Some(&json!({ "query": query, "variables": variables })),
+                &json!({ "query": query, "variables": variables }),
             )
             .await?;
         let errors = items(result.get("errors").unwrap_or(&Value::Null));
@@ -140,6 +151,38 @@ impl Origin<'_> {
             Some(number) if number.fract() == 0.0 && number > 0.0 => Ok(number as i64),
             _ => Err("number must be a pull request number".to_owned()),
         }
+    }
+
+    fn pull_route(args: &Value) -> Result<String, Failure> {
+        Ok(format!(
+            "{}/pulls/{}",
+            Self::repo_route(args)?,
+            Self::pull_number(args)?
+        ))
+    }
+
+    /// Builds a JSON object with a normalized string `id` field followed by the given fields.
+    fn with_id(source: &Value, id_key: &str, entries: &[(&str, Option<&Value>)]) -> Value {
+        let id = json!(id_of(source.get(id_key)));
+        let mut all = Vec::with_capacity(entries.len() + 1);
+        all.push(("id", Some(&id)));
+        all.extend_from_slice(entries);
+        fields(&all)
+    }
+
+    /// Fetches one paged GitHub list endpoint and maps each item into the response key.
+    async fn paged(
+        &self,
+        route: &str,
+        key: &str,
+        size: i64,
+        at_page: i64,
+        map: impl Fn(&Value) -> Value,
+    ) -> Answer {
+        let list = self.get(route).await?;
+        let raw = items(&list);
+        let shown: Vec<Value> = raw.iter().map(map).collect();
+        Ok(json!({ key: shown, "nextPageToken": next_page(raw.len(), size, at_page) }))
     }
 
     pub(super) async fn get_repository(&self, args: &Value) -> Answer {
@@ -240,19 +283,17 @@ impl Origin<'_> {
         };
         // Private by default: an agent should not publish a repository on its own.
         let repo = self
-            .api(
-                Method::POST,
+            .post(
                 &route,
-                Some(&json!({ "name": name, "private": true, "auto_init": true })),
+                &json!({ "name": name, "private": true, "auto_init": true }),
             )
             .await?;
         let wanted = arg(args, "defaultBranch");
         let current = js::text(repo.get("default_branch"));
         if !wanted.is_empty() && wanted != current {
-            self.api(
-                Method::POST,
+            self.post(
                 &format!("/repos/{owner}/{name}/branches/{current}/rename"),
-                Some(&json!({ "new_name": wanted })),
+                &json!({ "new_name": wanted }),
             )
             .await?;
         }
@@ -342,15 +383,17 @@ impl Origin<'_> {
 
     pub(super) async fn pull_request_read(&self, args: &Value) -> Answer {
         let number = Self::pull_number(args)?;
-        let route = format!("{}/pulls/{number}", Self::repo_route(args)?);
+        let route = Self::pull_route(args)?;
         let (size, at_page) = (page_size(args, 30.0), page(args));
         let paging = format!("per_page={size}&page={at_page}");
         match arg(args, "view") {
             "files" => {
-                let files = self.get(&format!("{route}/files?{paging}")).await?;
-                let shown: Vec<Value> = items(&files)
-                    .iter()
-                    .map(|file| {
+                self.paged(
+                    &format!("{route}/files?{paging}"),
+                    "files",
+                    size,
+                    at_page,
+                    |file| {
                         fields(&[
                             ("path", file.get("filename")),
                             ("status", file.get("status")),
@@ -359,72 +402,65 @@ impl Origin<'_> {
                             ("previousPath", file.get("previous_filename")),
                             ("patch", file.get("patch")),
                         ])
-                    })
-                    .collect();
-                Ok(
-                    json!({ "files": shown, "nextPageToken": next_page(items(&files).len(), size, at_page) }),
+                    },
                 )
+                .await
             }
             "commits" => {
-                let commits = self.get(&format!("{route}/commits?{paging}")).await?;
-                let shown: Vec<Value> = items(&commits)
-                    .iter()
-                    .map(|commit| {
+                self.paged(
+                    &format!("{route}/commits?{paging}"),
+                    "commits",
+                    size,
+                    at_page,
+                    |commit| {
                         fields(&[
                             ("sha", commit.get("sha")),
                             ("message", at(commit, &["commit", "message"])),
                             ("author", at(commit, &["commit", "author", "name"])),
                             ("date", at(commit, &["commit", "author", "date"])),
                         ])
-                    })
-                    .collect();
-                Ok(
-                    json!({ "commits": shown, "nextPageToken": next_page(items(&commits).len(), size, at_page) }),
+                    },
                 )
+                .await
             }
             "reviews" => {
-                let reviews = self.get(&format!("{route}/reviews?{paging}")).await?;
-                let shown: Vec<Value> = items(&reviews)
-                    .iter()
-                    .map(|review| {
-                        let id = json!(id_of(review.get("id")));
-                        fields(&[
-                            ("id", Some(&id)),
-                            ("author", at(review, &["user", "login"])),
-                            ("state", review.get("state")),
-                            ("body", review.get("body")),
-                            ("submittedAt", review.get("submitted_at")),
-                            ("commitId", review.get("commit_id")),
-                        ])
-                    })
-                    .collect();
-                Ok(
-                    json!({ "reviews": shown, "nextPageToken": next_page(items(&reviews).len(), size, at_page) }),
+                self.paged(
+                    &format!("{route}/reviews?{paging}"),
+                    "reviews",
+                    size,
+                    at_page,
+                    |review| {
+                        Self::with_id(
+                            review,
+                            "id",
+                            &[
+                                ("author", at(review, &["user", "login"])),
+                                ("state", review.get("state")),
+                                ("body", review.get("body")),
+                                ("submittedAt", review.get("submitted_at")),
+                                ("commitId", review.get("commit_id")),
+                            ],
+                        )
+                    },
                 )
+                .await
             }
             "comments" => {
                 let (owner, name) = Self::repo_of(args)?;
-                let comments = self
-                    .get(&format!(
-                        "/repos/{owner}/{name}/issues/{number}/comments?{paging}"
-                    ))
-                    .await?;
-                let shown: Vec<Value> = items(&comments)
-                    .iter()
-                    .map(|comment| {
-                        let id = json!(id_of(comment.get("id")));
-                        fields(&[
-                            ("id", Some(&id)),
+                let url = format!("/repos/{owner}/{name}/issues/{number}/comments?{paging}");
+                self.paged(&url, "comments", size, at_page, |comment| {
+                    Self::with_id(
+                        comment,
+                        "id",
+                        &[
                             ("author", at(comment, &["user", "login"])),
                             ("body", comment.get("body")),
                             ("createdAt", comment.get("created_at")),
                             ("updatedAt", comment.get("updated_at")),
-                        ])
-                    })
-                    .collect();
-                Ok(
-                    json!({ "comments": shown, "nextPageToken": next_page(items(&comments).len(), size, at_page) }),
-                )
+                        ],
+                    )
+                })
+                .await
             }
             "threads" => self.read_threads(args, number).await,
             _ => Ok(json!({ "pullRequest": pull(&self.get(&route).await?) })),
@@ -692,18 +728,12 @@ impl Origin<'_> {
         if let Some(text) = args.get("body").filter(|text| text.is_string()) {
             body["body"] = text.clone();
         }
-        let pr = self
-            .api(Method::POST, &format!("{route}/pulls"), Some(&body))
-            .await?;
+        let pr = self.post(&format!("{route}/pulls"), &body).await?;
         Ok(json!({ "pullRequest": pull(&pr) }))
     }
 
     pub(super) async fn update_pull_request(&self, args: &Value) -> Answer {
-        let route = format!(
-            "{}/pulls/{}",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
-        );
+        let route = Self::pull_route(args)?;
         let mut patch = Map::new();
         for key in ["title", "body"] {
             if let Some(text) = args.get(key).filter(|text| text.is_string()) {
@@ -719,8 +749,7 @@ impl Origin<'_> {
         let mut pr = if patch.is_empty() {
             self.get(&route).await?
         } else {
-            self.api(Method::PATCH, &route, Some(&Value::Object(patch)))
-                .await?
+            self.patch(&route, &Value::Object(patch)).await?
         };
         if let Some(draft) = args.get("draft").and_then(Value::as_bool)
             && pr.get("draft").and_then(Value::as_bool) != Some(draft)
@@ -746,13 +775,8 @@ impl Origin<'_> {
         if base.is_empty() {
             return Err("Give base or parentPullNumber".to_owned());
         }
-        let route = format!(
-            "{}/pulls/{}",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
-        );
         let pr = self
-            .api(Method::PATCH, &route, Some(&json!({ "base": base })))
+            .patch(&Self::pull_route(args)?, &json!({ "base": base }))
             .await?;
         Ok(json!({ "pullRequest": pull(&pr) }))
     }
@@ -765,21 +789,15 @@ impl Origin<'_> {
                     .to_owned(),
             );
         }
-        let route = format!(
-            "{}/pulls/{}/merge",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
-        );
         let method = if arg(args, "mergeMethod") == "squash" {
             "squash"
         } else {
             "merge"
         };
         let result = self
-            .api(
-                Method::PUT,
-                &route,
-                Some(&json!({ "sha": expected, "merge_method": method })),
+            .put(
+                &format!("{}/merge", Self::pull_route(args)?),
+                &json!({ "sha": expected, "merge_method": method }),
             )
             .await?;
         let merged = json!(result.get("merged") == Some(&Value::Bool(true)));
@@ -801,61 +819,51 @@ impl Origin<'_> {
         if let Some(text) = args.get("body").filter(|text| text.is_string()) {
             body["body"] = text.clone();
         }
-        let route = format!(
-            "{}/pulls/{}/reviews",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
+        let review = self
+            .post(&format!("{}/reviews", Self::pull_route(args)?), &body)
+            .await?;
+        let shown = Self::with_id(
+            &review,
+            "id",
+            &[
+                ("state", review.get("state")),
+                ("body", review.get("body")),
+                ("url", review.get("html_url")),
+            ],
         );
-        let review = self.api(Method::POST, &route, Some(&body)).await?;
-        let id = json!(id_of(review.get("id")));
-        let shown = fields(&[
-            ("id", Some(&id)),
-            ("state", review.get("state")),
-            ("body", review.get("body")),
-            ("url", review.get("html_url")),
-        ]);
         Ok(json!({ "review": shown }))
     }
 
     pub(super) async fn update_review(&self, args: &Value) -> Answer {
         let route = format!(
-            "{}/pulls/{}/reviews/{}",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?,
+            "{}/reviews/{}",
+            Self::pull_route(args)?,
             encode(arg(args, "reviewId"))
         );
         let review = self
-            .api(
-                Method::PUT,
-                &route,
-                Some(&json!({ "body": arg(args, "body") })),
-            )
+            .put(&route, &json!({ "body": arg(args, "body") }))
             .await?;
-        let id = json!(id_of(review.get("id")));
-        let shown = fields(&[
-            ("id", Some(&id)),
-            ("state", review.get("state")),
-            ("body", review.get("body")),
-        ]);
+        let shown = Self::with_id(
+            &review,
+            "id",
+            &[("state", review.get("state")), ("body", review.get("body"))],
+        );
         Ok(json!({ "review": shown }))
     }
 
     pub(super) async fn dismiss_review(&self, args: &Value) -> Answer {
         let route = format!(
-            "{}/pulls/{}/reviews/{}/dismissals",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?,
+            "{}/reviews/{}/dismissals",
+            Self::pull_route(args)?,
             encode(arg(args, "reviewId"))
         );
         let review = self
-            .api(
-                Method::PUT,
+            .put(
                 &route,
-                Some(&json!({ "message": arg(args, "message"), "event": "DISMISS" })),
+                &json!({ "message": arg(args, "message"), "event": "DISMISS" }),
             )
             .await?;
-        let id = json!(id_of(review.get("id")));
-        let shown = fields(&[("id", Some(&id)), ("state", review.get("state"))]);
+        let shown = Self::with_id(&review, "id", &[("state", review.get("state"))]);
         Ok(json!({ "review": shown }))
     }
 
@@ -866,18 +874,16 @@ impl Origin<'_> {
             Self::pull_number(args)?
         );
         let comment = self
-            .api(
-                Method::POST,
-                &route,
-                Some(&json!({ "body": arg(args, "body") })),
-            )
+            .post(&route, &json!({ "body": arg(args, "body") }))
             .await?;
-        let id = json!(id_of(comment.get("id")));
-        let shown = fields(&[
-            ("id", Some(&id)),
-            ("body", comment.get("body")),
-            ("url", comment.get("html_url")),
-        ]);
+        let shown = Self::with_id(
+            &comment,
+            "id",
+            &[
+                ("body", comment.get("body")),
+                ("url", comment.get("html_url")),
+            ],
+        );
         Ok(json!({ "comment": shown }))
     }
 
@@ -887,11 +893,7 @@ impl Origin<'_> {
             .get("anchor")
             .filter(|anchor| anchor.is_object())
             .unwrap_or(&empty);
-        let route = format!(
-            "{}/pulls/{}",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
-        );
+        let route = Self::pull_route(args)?;
         let pr = self.get(&route).await?;
         let kind = if arg(anchor, "kind").is_empty() {
             "line"
@@ -920,17 +922,17 @@ impl Origin<'_> {
                 body["side"] = json!(side);
             }
         }
-        let comment = self
-            .api(Method::POST, &format!("{route}/comments"), Some(&body))
-            .await?;
-        let id = json!(id_of(comment.get("id")));
-        let shown = fields(&[
-            ("id", Some(&id)),
-            ("path", comment.get("path")),
-            ("line", comment.get("line")),
-            ("side", comment.get("side")),
-            ("url", comment.get("html_url")),
-        ]);
+        let comment = self.post(&format!("{route}/comments"), &body).await?;
+        let shown = Self::with_id(
+            &comment,
+            "id",
+            &[
+                ("path", comment.get("path")),
+                ("line", comment.get("line")),
+                ("side", comment.get("side")),
+                ("url", comment.get("html_url")),
+            ],
+        );
         Ok(json!({ "inlineComment": shown }))
     }
 
@@ -957,24 +959,15 @@ impl Origin<'_> {
                 ));
             }
         }
-        let route = format!(
-            "{}/pulls/{}/comments/{comment_id}/replies",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
-        );
+        let route = format!("{}/comments/{comment_id}/replies", Self::pull_route(args)?);
         let reply = self
-            .api(
-                Method::POST,
-                &route,
-                Some(&json!({ "body": arg(args, "body") })),
-            )
+            .post(&route, &json!({ "body": arg(args, "body") }))
             .await?;
-        let id = json!(id_of(reply.get("id")));
-        let shown = fields(&[
-            ("id", Some(&id)),
-            ("body", reply.get("body")),
-            ("url", reply.get("html_url")),
-        ]);
+        let shown = Self::with_id(
+            &reply,
+            "id",
+            &[("body", reply.get("body")), ("url", reply.get("html_url"))],
+        );
         Ok(json!({ "reply": shown }))
     }
 
@@ -1007,27 +1000,18 @@ impl Origin<'_> {
         let body = json!({ "body": arg(args, "body") });
         let base = Self::repo_route(args)?;
         let comment = match self
-            .api(
-                Method::PATCH,
-                &format!("{base}/issues/comments/{id}"),
-                Some(&body),
-            )
+            .patch(&format!("{base}/issues/comments/{id}"), &body)
             .await
         {
             Ok(comment) => comment,
             // Not a conversation comment: try it as an inline review comment.
             Err(error) if error.contains("GitHub 404") => {
-                self.api(
-                    Method::PATCH,
-                    &format!("{base}/pulls/comments/{id}"),
-                    Some(&body),
-                )
-                .await?
+                self.patch(&format!("{base}/pulls/comments/{id}"), &body)
+                    .await?
             }
             Err(error) => return Err(error),
         };
-        let id = json!(id_of(comment.get("id")));
-        let shown = fields(&[("id", Some(&id)), ("body", comment.get("body"))]);
+        let shown = Self::with_id(&comment, "id", &[("body", comment.get("body"))]);
         Ok(json!({ "comment": shown }))
     }
 
@@ -1041,9 +1025,7 @@ impl Origin<'_> {
             Self::repo_route(args)?,
             Self::pull_number(args)?
         );
-        let result = self
-            .api(Method::PUT, &route, Some(&json!({ "labels": labels })))
-            .await?;
+        let result = self.put(&route, &json!({ "labels": labels })).await?;
         let names: Vec<&Value> = items(&result)
             .iter()
             .filter_map(|label| label.get("name"))
@@ -1060,11 +1042,7 @@ impl Origin<'_> {
             body["description"] = text.clone();
         }
         let label = self
-            .api(
-                Method::POST,
-                &format!("{}/labels", Self::repo_route(args)?),
-                Some(&body),
-            )
+            .post(&format!("{}/labels", Self::repo_route(args)?), &body)
             .await?;
         let shown = fields(&[
             ("name", label.get("name")),
@@ -1081,11 +1059,7 @@ impl Origin<'_> {
                 .map(|name| js::text(Some(name)))
                 .collect()
         };
-        let route = format!(
-            "{}/pulls/{}",
-            Self::repo_route(args)?,
-            Self::pull_number(args)?
-        );
+        let route = Self::pull_route(args)?;
         let removing = method == Method::DELETE;
         let answer = self
             .api(

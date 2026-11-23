@@ -5846,12 +5846,14 @@ name = "workbench-llm"
 version = "0.7.0"
 dependencies = [
  "axum",
+ "jiff",
  "percent-encoding",
  "regex",
  "reqwest",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "workbench-domain",
