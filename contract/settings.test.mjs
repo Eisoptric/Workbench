@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { request as apiRequest } from "./client.mjs";
+import { api as apiCall, request as apiRequest } from "./client.mjs";
 import { node } from "./files-support.mjs";
 import { startRuntime } from "./runtime.mjs";
 
@@ -25,13 +25,7 @@ after(async () => {
 });
 
 const call = (method, route, body) => apiRequest(runtime, method, route, body);
-
-/** The same, refusing any status but the expected one. */
-async function api(method, route, body, expected = 200) {
-  const { status, body: answer } = await call(method, route, body);
-  assert.equal(status, expected, `${method} ${route}: ${JSON.stringify(answer)}`);
-  return answer;
-}
+const api = (method, route, body, expected = 200) => apiCall(runtime, method, route, body, expected);
 
 test("a model's key is saved, serves its provider and is never returned", async () => {
   const secret = "contract-secret-value";

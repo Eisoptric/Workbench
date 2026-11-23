@@ -43,10 +43,13 @@ export async function request(target, method, route, body, headers = {}) {
   return { status: response.status, body: parsed, headers: response.headers };
 }
 
-/** An authenticated API call that must succeed (< 300). */
-export async function api(target, method, route, body, headers = {}) {
+/** An authenticated API call that must succeed (< 300), or match specific expected status code(s). */
+export async function api(target, method, route, body, options = {}) {
+  const expected = Array.isArray(options) || typeof options === "number" ? [].concat(options) : null;
+  const headers = expected ? {} : options;
   const answer = await request(target, method, route, body, headers);
-  assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
+  const ok = expected ? expected.includes(answer.status) : answer.status < 300;
+  assert.ok(ok, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
   return answer.body;
 }
 

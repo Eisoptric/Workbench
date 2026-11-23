@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { fakeModel, fetched, request as apiRequest } from "./client.mjs";
+import { api as apiCall, fakeModel, fetched } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 let runtime;
@@ -23,11 +23,7 @@ after(async () => {
 
 const call = (method, route, body) => fetched(runtime, method, route, body);
 
-async function api(method, route, body, expected = [200, 201, 204]) {
-  const answer = await apiRequest(runtime, method, route, body);
-  assert.ok(expected.includes(answer.status), `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
+const api = (method, route, body, expected = [200, 201, 204]) => apiCall(runtime, method, route, body, expected);
 
 /** A folder holding `files`, by path. */
 async function folder(name, files) {

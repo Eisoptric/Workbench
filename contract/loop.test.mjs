@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { fakeServer, request as apiRequest, settled, toolCall as call, until as pollUntil } from "./client.mjs";
+import { api as apiCall, fakeServer, settled, toolCall as call, until as pollUntil } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 /**
@@ -46,12 +46,7 @@ after(async () => {
   await rm(folder, { recursive: true, force: true });
 });
 
-/** An API call with the token; refuses an unexpected status so a test reads as the flow it checks. */
-async function api(target, method, route, body, expected = [200, 201, 204]) {
-  const answer = await apiRequest(target, method, route, body);
-  assert.ok(expected.includes(answer.status), `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
+const api = (target, method, route, body, expected = [200, 201, 204]) => apiCall(target, method, route, body, expected);
 
 /** A new agent on a scripted model, working in a chat in the test's folder. */
 async function agentOn(script, autonomy = "review", target = runtime) {

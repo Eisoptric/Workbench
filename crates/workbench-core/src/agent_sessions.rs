@@ -50,6 +50,64 @@ pub(crate) async fn make_private_folder(folder: &Path) -> Result<(), CoreError> 
     Ok(())
 }
 
+/// Logs the completion or failure of an external agent-program turn and finalizes its run record.
+pub(crate) async fn finish_program_turn(
+    turn: &Turn,
+    agent: &Value,
+    program_name: &str,
+    started: std::time::Instant,
+    failure: Option<String>,
+    not_signed_in: &regex::Regex,
+    sign_in_hint: &str,
+) -> Result<(), CoreError> {
+    if !turn.kernel.alive(&turn.run_id, turn.at) {
+        return Ok(());
+    }
+    let seconds = started.elapsed().as_secs_f64();
+    if let Some(failure) = failure {
+        let explained = if not_signed_in.is_match(&failure) {
+            sign_in_hint.to_owned()
+        } else {
+            failure
+        };
+        log(
+            "agent",
+            "error",
+            &format!(
+                "{} failed in {program_name} after {seconds:.1}s: {}",
+                text(agent, "name"),
+                clip(&explained, 200)
+            ),
+        );
+        return turn.finish(Some(explained)).await;
+    }
+    turn.finish(None).await?;
+    let count = locked(&turn.record).actions.len();
+    log(
+        "agent",
+        "info",
+        &format!(
+            "{} finished in {program_name} after {seconds:.1}s with {count} tool {}",
+            text(agent, "name"),
+            if count == 1 { "call" } else { "calls" }
+        ),
+    );
+    Ok(())
+}
+
+/// Resolves and canonicalizes the working directory for a CLI agent program turn.
+impl Kernel {
+    pub(crate) async fn canonical_program_workdir(
+        &self,
+        run: &Value,
+    ) -> Result<PathBuf, CoreError> {
+        let workdir = self.program_workdir(run).await?;
+        Ok(tokio::fs::canonicalize(&workdir)
+            .await
+            .map_or(workdir, workbench_domain::plain_path))
+    }
+}
+
 /// How much an agent may do without asking: what its chat's mode says, else its own setting.
 pub(crate) fn approval_mode(agent: &Value, chat_mode: Option<&str>) -> GuardrailMode {
     // A chat's mode says how much it asks; the agent's own setting is for a chat with none.

@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { request } from "./client.mjs";
 import { until } from "./files-support.mjs";
 import { startRuntime } from "./runtime.mjs";
 
@@ -29,11 +30,7 @@ async function freePort() {
 }
 
 /** A JSON request to the isolated runtime, with its status. */
-async function api(method, route, body) {
-  const token = (await readFile(path.join(data, "runtime-token"), "utf8")).trim();
-  const response = await fetch(runtime.origin + route, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  return { status: response.status, body: await response.json().catch(() => null) };
-}
+const api = (method, route, body) => request({ origin: runtime.origin, dataDir: data }, method, route, body);
 
 before(async () => {
   if (skip) return;

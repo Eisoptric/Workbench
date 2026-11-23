@@ -597,10 +597,7 @@ impl Kernel {
         model: &Value,
     ) -> Result<(), CoreError> {
         let run = self.get_run(run_id)?;
-        let workdir = self.program_workdir(&run).await?;
-        let workdir = tokio::fs::canonicalize(&workdir)
-            .await
-            .map_or(workdir, workbench_domain::plain_path);
+        let workdir = self.canonical_program_workdir(&run).await?;
         crate::agent_sessions::make_private_folder(&self.claude_config()).await?;
         let cli = self.program_path("claude-code")?;
         let resume = self.saved_session(&run, "claudeSessionId");
@@ -716,39 +713,16 @@ impl Kernel {
         if let Some(session) = session.as_deref().filter(|_| session != resume) {
             self.save_session(&run, "claudeSessionId", session).await?;
         }
-        if !self.alive(run_id, at) {
-            return Ok(());
-        }
-        let seconds = started.elapsed().as_secs_f64();
-        if let Some(failure) = failure {
-            let explained = if NOT_SIGNED_IN.is_match(&failure) {
-                "Claude Code isn't signed in for the app yet. In Settings → General → Claude Code, copy the login command and run it once in a terminal.".to_owned()
-            } else {
-                failure
-            };
-            log(
-                "agent",
-                "error",
-                &format!(
-                    "{} failed in Claude Code after {seconds:.1}s: {}",
-                    text(agent, "name"),
-                    clip(&explained, 200)
-                ),
-            );
-            return turn.finish(Some(explained)).await;
-        }
-        turn.finish(None).await?;
-        let count = locked(&turn.record).actions.len();
-        log(
-            "agent",
-            "info",
-            &format!(
-                "{} finished in Claude Code after {seconds:.1}s with {count} tool {}",
-                text(agent, "name"),
-                if count == 1 { "call" } else { "calls" }
-            ),
-        );
-        Ok(())
+        crate::agent_sessions::finish_program_turn(
+            &turn,
+            agent,
+            "Claude Code",
+            started,
+            failure,
+            &NOT_SIGNED_IN,
+            "Claude Code isn't signed in for the app yet. In Settings → General → Claude Code, copy the login command and run it once in a terminal.",
+        )
+        .await
     }
 }
 

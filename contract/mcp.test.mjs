@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { request as apiRequest, until } from "./client.mjs";
+import { api as apiCall, until } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 let runtime;
@@ -23,11 +23,7 @@ after(async () => {
   await rm(folder, { recursive: true, force: true });
 });
 
-async function api(method, route, body, expected = [200, 201, 204]) {
-  const answer = await apiRequest(runtime, method, route, body);
-  assert.ok(expected.includes(answer.status), `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
+const api = (method, route, body, expected = [200, 201, 204]) => apiCall(runtime, method, route, body, expected);
 
 /** A server on a free port. `handle` gets the request, its body as text, and the response. */
 async function serve(handle) {
