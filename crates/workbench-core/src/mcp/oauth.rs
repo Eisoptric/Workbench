@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 use workbench_telemetry::network::SendNoted;
 
-use crate::{McpClient, McpError, Target, locked, secret_key};
+use super::{McpClient, McpError, Target, locked, secret_key};
 
 /// A sign-in waiting for the browser to come back.
 #[derive(Clone, Debug)]
@@ -396,7 +396,7 @@ impl McpClient {
             .map_err(|error| McpError::failed(error.to_string()))?;
         self.close(&target.id);
         self.connect(&target).await?;
-        eprintln!("[mcp] Signed in to {}", crate::host_of(&target.url));
+        eprintln!("[mcp] Signed in to {}", super::host_of(&target.url));
         Ok(target)
     }
 

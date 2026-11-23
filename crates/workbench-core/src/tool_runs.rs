@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::mcp::McpError;
 use serde_json::{Value, json};
 use workbench_browser::Mode;
 use workbench_domain::js;
@@ -13,7 +14,6 @@ use workbench_domain::prompt::RunMode;
 use workbench_domain::skills::workspace::Workspace;
 use workbench_domain::toolkits::{toolkit_name, toolkit_server};
 use workbench_llm::{ToolDef, ToolFunction};
-use workbench_mcp::McpError;
 use workbench_store::AppState;
 use workbench_telemetry::{Kind, Span};
 use workbench_tools::code::{CodeOptions, ScopedJobs};

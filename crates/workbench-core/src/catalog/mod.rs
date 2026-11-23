@@ -5,6 +5,7 @@ mod models;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+use crate::mcp::{LocalCommand, McpError, Target};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -12,7 +13,6 @@ use workbench_domain::js;
 use workbench_domain::llm::{llm_provider, runs_locally, runs_on_plan};
 use workbench_domain::new_id;
 use workbench_llm::{Effort, ModelConnection};
-use workbench_mcp::{LocalCommand, McpError, Target};
 
 use crate::builtins::{
     COMPUTER_USE_ID, CUSTOMIZATIONS_ID, GENERAL_SKILLS_ID, ORIGIN_ID, RESEARCH_ID, builtin_server,

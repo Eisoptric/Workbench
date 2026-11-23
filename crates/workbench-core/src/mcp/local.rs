@@ -10,7 +10,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::task::JoinHandle;
 
-use crate::{HANDSHAKE, LocalCommand, McpError, locked};
+use super::{HANDSHAKE, LocalCommand, McpError, locked};
 
 /// Bytes of a server's stderr that are kept.
 const STDERR_LIMIT: usize = 4000;

@@ -142,13 +142,13 @@ pub type OpenBrowser = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// An MCP client for all of a runtime's servers.
 pub struct McpClient {
-    pub(crate) store: Arc<FileStore>,
-    pub(crate) redirect_url: String,
-    pub(crate) open_browser: OpenBrowser,
-    pub(crate) http: reqwest::Client,
-    pub(crate) sessions: Mutex<HashMap<String, Arc<OnceCell<Arc<Session>>>>>,
+    store: Arc<FileStore>,
+    redirect_url: String,
+    open_browser: OpenBrowser,
+    http: reqwest::Client,
+    sessions: Mutex<HashMap<String, Arc<OnceCell<Arc<Session>>>>>,
     /// OAuth sign-ins waiting for the browser to come back, by `state`.
-    pub(crate) pending: Arc<Mutex<HashMap<String, Pending>>>,
+    pending: Arc<Mutex<HashMap<String, Pending>>>,
 }
 
 impl McpClient {
