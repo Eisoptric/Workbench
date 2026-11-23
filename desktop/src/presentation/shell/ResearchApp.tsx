@@ -4,7 +4,7 @@ import { shortcut, t } from "../../domain/i18n.js";
 import { firstLaunchSteps, isWorkScreen, quitQuestion, screenLabels, statusText, windowTitle } from "../../domain/workbench.js";
 import type { Model, Profile, Project } from "../../domain/model.js";
 import { askToConfirm } from "../../infrastructure/confirm.js";
-import { useRuntimeStatus } from "../../infrastructure/runtime-status.js";
+import { useRuntimeStatus } from "./useRuntimeStatus.js";
 import { syncWindowControls } from "../../infrastructure/window-controls.js";
 import { AccessDialog, chooseFolder, homeShortened } from "../ProjectAccess.js";
 import { AssistantIcon, BoxIcon, CodeIcon, DataIcon, FlaskIcon, GearIcon, HomeIcon, InspectIcon, LineageIcon, SamplesIcon, ShieldIcon, TasksIcon } from "../ui/Icons.js";
@@ -195,7 +195,6 @@ export function ResearchApp() {
       ...(runtime.restart ? [{ id: "restart-runtime", label: t("Restart the app's runtime"), run: () => void runtime.restart?.() }] : []),
     ],
     // The commands close over the latest state each time they are rebuilt.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [assistant, go, projectId, projects, runtime.restart, theme, toggleAssistant],
   );
 

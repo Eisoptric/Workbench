@@ -1,49 +1,35 @@
 // What the agent loop must do, whichever language runs it, driven only over HTTP with a scripted model.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { api as apiCall, fakeServer, settled, toolCall as call, until as pollUntil } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
-
-/** One tool call in a scripted model turn. */
-const call = (name, args, id = `call_${name}`) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 
 /**
  * A fake OpenAI-compatible model: each request takes the next turn of `script`, an answer as text, a list of tool calls,
  * { status, body } for an error, or a function for anything else. Every request's body is kept.
  */
 async function scriptedModel(script) {
-  const requests = [];
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", async () => {
-      const turn = script[requests.length];
-      requests.push(JSON.parse(raw || "{}"));
-      const answer = typeof turn === "function" ? await turn(request, response) : turn;
-      if (response.writableEnded || answer === undefined && typeof turn === "function") return;
-      if (answer?.status) {
-        response.writeHead(answer.status, { "content-type": "application/json" }).end(JSON.stringify(answer.body ?? { error: { message: "scripted failure" } }));
-        return;
-      }
-      const message = Array.isArray(answer) ? { role: "assistant", content: "", tool_calls: answer } : { role: "assistant", content: answer ?? "finished" };
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
-        id: "reply",
-        object: "chat.completion",
-        model: "scripted",
-        choices: [{ index: 0, finish_reason: Array.isArray(answer) ? "tool_calls" : "stop", message }],
-        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
-      }));
-    });
+  let index = 0;
+  return fakeServer(async (_body, response, incoming) => {
+    const turn = script[index++];
+    const answer = typeof turn === "function" ? await turn(incoming, response) : turn;
+    if (response.writableEnded || (answer === undefined && typeof turn === "function")) return;
+    if (answer?.status) {
+      response.writeHead(answer.status, { "content-type": "application/json" }).end(JSON.stringify(answer.body ?? { error: { message: "scripted failure" } }));
+      return;
+    }
+    const message = Array.isArray(answer) ? { role: "assistant", content: "", tool_calls: answer } : { role: "assistant", content: answer ?? "finished" };
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+      id: "reply",
+      object: "chat.completion",
+      model: "scripted",
+      choices: [{ index: 0, finish_reason: Array.isArray(answer) ? "tool_calls" : "stop", message }],
+      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+    }));
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return {
-    requests,
-    url: `http://127.0.0.1:${server.address().port}`,
-    stop: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }),
-  };
 }
 
 let runtime;
@@ -60,18 +46,7 @@ after(async () => {
   await rm(folder, { recursive: true, force: true });
 });
 
-/** An API call with the token; refuses an unexpected status so a test reads as the flow it checks. */
-async function api(target, method, route, body, expected = [200, 201, 204]) {
-  const token = (await readFile(path.join(target.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${target.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  assert.ok(expected.includes(response.status), `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
-}
+const api = (target, method, route, body, expected = [200, 201, 204]) => apiCall(target, method, route, body, expected);
 
 /** A new agent on a scripted model, working in a chat in the test's folder. */
 async function agentOn(script, autonomy = "review", target = runtime) {
@@ -87,16 +62,7 @@ async function agentOn(script, autonomy = "review", target = runtime) {
 const start = (setup, input = "go", target = runtime) => api(target, "POST", `/agents/${setup.agent.id}/runs`, { input, threadId: setup.thread.id });
 
 /** Reads a run until `done` says so. */
-async function until(runId, done, target = runtime) {
-  let run;
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    run = await api(target, "GET", `/runs/${runId}`);
-    if (done(run)) return run;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`run stuck at ${run?.status}: ${run?.error ?? ""}`);
-}
-const settled = (run) => !["queued", "running", "waiting_approval"].includes(run.status);
+const until = (runId, done, target = runtime) => pollUntil(`run ${runId}`, () => api(target, "GET", `/runs/${runId}`), done, { ms: 10_000 });
 const waiting = (run) => run.status === "waiting_approval";
 
 /** Everything the model was sent in one request, as text. */

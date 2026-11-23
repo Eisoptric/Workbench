@@ -113,7 +113,7 @@ export class RuntimeClient {
         const body = JSON.parse(text) as { error?: string };
         if (body.error) message = body.error;
       } catch {
-        // Express's own HTML page ("Cannot POST /path") means the route is missing: the runtime is older than this app.
+        // An HTML 404 page ("Cannot POST /path") from an older runtime means the route is missing.
         const missing = /Cannot (GET|POST|PUT|PATCH|DELETE) ([^<\s]+)/.exec(text);
         if (missing) {
           message = `The runtime on this computer is out of date (it has no ${missing[1]} ${missing[2]}). Restart the app, or restart the runtime in development.`;

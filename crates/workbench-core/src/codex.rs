@@ -311,16 +311,7 @@ impl Kernel {
     }
 
     async fn make_codex_home(&self) -> Result<(), CoreError> {
-        let home = self.codex_home();
-        tokio::fs::create_dir_all(&home)
-            .await
-            .map_err(|error| CoreError::new(500, error.to_string()))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = tokio::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).await;
-        }
-        Ok(())
+        crate::agent_sessions::make_private_folder(&self.codex_home()).await
     }
 
     /// The sign-in on show: the one in progress, or the last one that failed.
@@ -626,10 +617,7 @@ impl Kernel {
         model: &Value,
     ) -> Result<(), CoreError> {
         let run = self.get_run(run_id)?;
-        let workdir = self.program_workdir(&run).await?;
-        let workdir = tokio::fs::canonicalize(&workdir)
-            .await
-            .map_or(workdir, workbench_domain::plain_path);
+        let workdir = self.canonical_program_workdir(&run).await?;
         self.make_codex_home().await?;
         let cli = self.program_path("codex")?;
         let mode = RunMode::parse(run.get("mode").and_then(Value::as_str));
@@ -776,40 +764,16 @@ impl Kernel {
             self.save_session(&run, INSTRUCTIONS_HEARD, &instructions_hash)
                 .await?;
         }
-        if !self.alive(run_id, at) {
-            return Ok(());
-        }
-        let seconds = started.elapsed().as_secs_f64();
-        if let Some(failure) = failure {
-            let explained = if NOT_SIGNED_IN.is_match(&failure) {
-                "Codex isn't signed in for the app yet. Sign in under Settings → General → Codex."
-                    .to_owned()
-            } else {
-                failure
-            };
-            log(
-                "agent",
-                "error",
-                &format!(
-                    "{} failed in Codex after {seconds:.1}s: {}",
-                    text(agent, "name"),
-                    clip(&explained, 200)
-                ),
-            );
-            return turn.finish(Some(explained)).await;
-        }
-        turn.finish(None).await?;
-        let count = locked(&turn.record).actions.len();
-        log(
-            "agent",
-            "info",
-            &format!(
-                "{} finished in Codex after {seconds:.1}s with {count} tool {}",
-                text(agent, "name"),
-                if count == 1 { "call" } else { "calls" }
-            ),
-        );
-        Ok(())
+        crate::agent_sessions::finish_program_turn(
+            &turn,
+            agent,
+            "Codex",
+            started,
+            failure,
+            &NOT_SIGNED_IN,
+            "Codex isn't signed in for the app yet. Sign in under Settings → General → Codex.",
+        )
+        .await
     }
 
     /// Gives the program its prompt and follows its events until it ends. Answers the failure, if any.

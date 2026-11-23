@@ -1,27 +1,23 @@
-//! Servers reached over the network: Streamable HTTP, the older SSE transport, and plain JSON-RPC POSTs.
+//! Remote MCP servers over `rmcp`'s Streamable HTTP transport, with `workbench-telemetry` network logging and OAuth token refresh.
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use workbench_telemetry::network::SendNoted;
 
-use reqwest::{RequestBuilder, Response, StatusCode};
-use serde_json::{Value, json};
-use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
+use futures_util::stream::BoxStream;
+use http::{HeaderName, HeaderValue};
+use rmcp::ServiceExt;
+use rmcp::model::{
+    ClientJsonRpcMessage, ClientRequest, InitializeResult, JsonRpcMessage, ServerResult,
+};
+use rmcp::service::{RoleClient, RunningService};
+use rmcp::transport::streamable_http_client::{
+    SseError, StreamableHttpClient, StreamableHttpClientTransport,
+    StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
+    StreamableHttpResponseLimits,
+};
+use sse_stream::Sse;
 use url::Url;
 
-use crate::sse::SseParser;
-use crate::{
-    HANDSHAKE, McpClient, McpError, PROTOCOL_VERSION, Target, initialize_params, locked, result_of,
-    secret_key,
-};
-
-/// Why Streamable HTTP did not open.
-pub(crate) enum OpenFailure {
-    /// Trying another transport would not help: the server wants a sign-in or refused the token.
-    Final(McpError),
-    Other(String),
-}
+use crate::{HANDSHAKE, McpClient, McpError, Target, host_of, locked, secret_key};
 
 /// Who may read a transport error: the message without the address, which can carry tokens.
 fn transport_error(error: &reqwest::Error) -> String {
@@ -29,7 +25,6 @@ fn transport_error(error: &reqwest::Error) -> String {
     if let Some(url) = error.url() {
         message = message.replace(&format!(" for url ({url})"), "");
     }
-    // The cause says why (a name that does not resolve, a refused connection), where the top line only says the request failed.
     let mut cause = std::error::Error::source(error);
     while let Some(reason) = cause {
         message = format!("{message}: {reason}");
@@ -38,35 +33,17 @@ fn transport_error(error: &reqwest::Error) -> String {
     message
 }
 
-/// The header this server's credential goes in.
-fn bearer(client: &McpClient, target: &Target) -> Option<String> {
-    let token = match target.auth.as_str() {
+fn bearer_token(client: &McpClient, target: &Target) -> Option<String> {
+    match target.auth.as_str() {
         "token" => client.store.secret(&secret_key(&target.id, "token")),
         "oauth" => client.saved_access_token(&target.id),
         _ => None,
-    };
-    token.map(|token| format!("Bearer {token}"))
-}
-
-fn with_bearer(request: RequestBuilder, client: &McpClient, target: &Target) -> RequestBuilder {
-    match bearer(client, target) {
-        Some(value) => request.header("authorization", value),
-        None => request,
     }
 }
 
-/// What an unauthorized answer means for this server.
-async fn unauthorized(client: &McpClient, target: &Target, response: &Response) -> McpError {
+async fn unauthorized(client: &McpClient, target: &Target, challenge: Option<&str>) -> McpError {
     if target.auth == "oauth" {
-        return client
-            .begin_sign_in(
-                target,
-                response
-                    .headers()
-                    .get("www-authenticate")
-                    .and_then(|value| value.to_str().ok()),
-            )
-            .await;
+        return client.begin_sign_in(target, challenge).await;
     }
     McpError::failed(if target.auth == "token" {
         "The server refused the token"
@@ -75,360 +52,248 @@ async fn unauthorized(client: &McpClient, target: &Target, response: &Response) 
     })
 }
 
-/// A Streamable HTTP session.
-pub(crate) struct HttpSession {
-    url: String,
-    session_id: Option<String>,
-    protocol: String,
-    next_id: AtomicU64,
+fn normalize_post_response(
+    request: &ClientJsonRpcMessage,
+    response: Result<StreamableHttpPostResponse, StreamableHttpError<reqwest::Error>>,
+) -> Result<StreamableHttpPostResponse, StreamableHttpError<reqwest::Error>> {
+    let is_init = matches!(
+        request,
+        JsonRpcMessage::Request(req) if matches!(req.request, ClientRequest::InitializeRequest(_))
+    );
+    let is_notification = matches!(request, JsonRpcMessage::Notification(_));
+    match response {
+        Ok(StreamableHttpPostResponse::Json(JsonRpcMessage::Response(mut resp), session_id))
+            if is_init && matches!(resp.result, ServerResult::CustomResult(_)) =>
+        {
+            resp.result = ServerResult::InitializeResult(InitializeResult::default());
+            Ok(StreamableHttpPostResponse::Json(
+                JsonRpcMessage::Response(resp),
+                session_id,
+            ))
+        }
+        Err(
+            StreamableHttpError::UnexpectedServerResponse(_) | StreamableHttpError::Deserialize(_),
+        ) if is_notification => Ok(StreamableHttpPostResponse::Accepted),
+        other => other,
+    }
+}
+fn note_url(method: &str, uri: &str) {
+    if let Ok(parsed) = Url::parse(uri) {
+        workbench_telemetry::network::note(method, &parsed);
+    }
 }
 
-impl HttpSession {
-    /// The handshake. `Ok(None)` is a server that answered `initialize` with plain JSON-RPC (no protocol version).
-    pub(crate) async fn open(
-        client: &McpClient,
-        target: &Target,
-    ) -> Result<Option<Self>, OpenFailure> {
-        let mut session = Self {
-            url: target.url.clone(),
-            session_id: None,
-            protocol: PROTOCOL_VERSION.to_owned(),
-            next_id: AtomicU64::new(1),
-        };
-        let body = json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": initialize_params() });
-        let response =
-            tokio::time::timeout(HANDSHAKE, session.post_refreshing(client, target, &body))
-                .await
-                .map_err(|_| OpenFailure::Other("the handshake timed out".to_owned()))?
-                .map_err(|error| match error {
-                    PostFailure::Mcp(error) => OpenFailure::Final(error),
-                    PostFailure::Transport(reason) => OpenFailure::Other(reason),
-                })?;
-        if !response.status().is_success() {
-            return Err(OpenFailure::Other(format!(
-                "it answered {}",
-                response.status().as_u16()
-            )));
+/// A `StreamableHttpClient` backed by `reqwest::Client` that records every request in `workbench-telemetry` and refreshes OAuth tokens on 401.
+#[derive(Clone)]
+struct NotedHttpClient {
+    client: McpClientHandle,
+    target: Target,
+    last_error: Arc<Mutex<Option<McpError>>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct McpClientHandle {
+    pub store: Arc<workbench_store::FileStore>,
+    pub redirect_url: String,
+    pub open_browser: crate::OpenBrowser,
+    pub http: reqwest::Client,
+    pub pending: Arc<Mutex<HashMap<String, crate::oauth::Pending>>>,
+}
+
+impl NotedHttpClient {
+    fn as_mcp(&self) -> McpClient {
+        McpClient {
+            store: Arc::clone(&self.client.store),
+            redirect_url: self.client.redirect_url.clone(),
+            open_browser: Arc::clone(&self.client.open_browser),
+            http: self.client.http.clone(),
+            sessions: Mutex::default(),
+            pending: Arc::clone(&self.client.pending),
         }
-        session.session_id = response
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let answer = tokio::time::timeout(HANDSHAKE, read_answer(response, 0))
-            .await
-            .map_err(|_| OpenFailure::Other("the handshake timed out".to_owned()))?
-            .map_err(OpenFailure::Other)?;
-        let Some(result) = answer.get("result") else {
-            return Err(OpenFailure::Other(
-                "it answered initialize with no result".to_owned(),
-            ));
-        };
-        let Some(protocol) = result.get("protocolVersion").and_then(Value::as_str) else {
-            return Ok(None);
-        };
-        session.protocol = protocol.to_owned();
-        // Fails nothing by itself: a server that wanted it says so on the next request.
-        let notice = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
-        let _ = session.post_refreshing(client, target, &notice).await;
-        Ok(Some(session))
     }
 
-    fn build(&self, client: &McpClient, target: &Target, body: &Value) -> RequestBuilder {
-        let mut request = client
-            .http
-            .post(&self.url)
-            .header("content-type", "application/json")
-            .header("accept", "application/json, text/event-stream")
-            .body(body.to_string());
-        if body.get("method").and_then(Value::as_str) != Some("initialize") {
-            request = request.header("mcp-protocol-version", &self.protocol);
-        }
-        if let Some(id) = &self.session_id {
-            request = request.header("mcp-session-id", id);
-        }
-        with_bearer(request, client, target)
-    }
-
-    /// Sends one message, refreshing a sign-in that expired once.
-    async fn post_refreshing(
+    async fn record_failure(
         &self,
-        client: &McpClient,
-        target: &Target,
-        body: &Value,
-    ) -> Result<Response, PostFailure> {
-        let send = |request: RequestBuilder| async move {
-            request
-                .send_noted()
-                .await
-                .map_err(|error| PostFailure::Transport(transport_error(&error)))
-        };
-        let response = send(self.build(client, target, body)).await?;
-        if response.status() != StatusCode::UNAUTHORIZED {
-            return Ok(response);
-        }
-        if target.auth == "oauth" && client.refresh_tokens(target).await {
-            let again = send(self.build(client, target, body)).await?;
-            if again.status() != StatusCode::UNAUTHORIZED {
-                return Ok(again);
+        error: &StreamableHttpError<reqwest::Error>,
+    ) -> Option<McpError> {
+        let mcp = self.as_mcp();
+        match error {
+            StreamableHttpError::AuthRequired(auth) => {
+                Some(unauthorized(&mcp, &self.target, Some(&auth.www_authenticate_header)).await)
             }
-            return Err(PostFailure::Mcp(unauthorized(client, target, &again).await));
-        }
-        Err(PostFailure::Mcp(
-            unauthorized(client, target, &response).await,
-        ))
-    }
-
-    pub(crate) async fn request(
-        &self,
-        client: &McpClient,
-        target: &Target,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, McpError> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let body = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        let response = self
-            .post_refreshing(client, target, &body)
-            .await
-            .map_err(|error| match error {
-                PostFailure::Mcp(error) => error,
-                PostFailure::Transport(reason) => McpError::failed(reason),
-            })?;
-        if !response.status().is_success() {
-            return Err(McpError::failed(format!(
-                "The MCP server answered {}",
-                response.status().as_u16()
-            )));
-        }
-        result_of(read_answer(response, id).await.map_err(McpError::Failed)?)
-    }
-}
-
-/// Why a POST did not get through.
-enum PostFailure {
-    Mcp(McpError),
-    Transport(String),
-}
-
-/// The answer to request `id`, from a JSON body or an event stream.
-async fn read_answer(mut response: Response, id: u64) -> Result<Value, String> {
-    let kind = response
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_owned();
-    if !kind.contains("text/event-stream") {
-        let text = response
-            .text()
-            .await
-            .map_err(|error| transport_error(&error))?;
-        return serde_json::from_str(&text).map_err(|_| "it did not answer with JSON".to_owned());
-    }
-    let mut parser = SseParser::default();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| transport_error(&error))?
-    {
-        for event in parser.feed(&chunk) {
-            if let Ok(message) = serde_json::from_str::<Value>(&event.data)
-                && message.get("id").and_then(Value::as_u64) == Some(id)
-                && message.get("method").is_none()
+            StreamableHttpError::UnexpectedServerResponse(text)
+                if text.starts_with("HTTP 401") || text.contains("401 Unauthorized") =>
             {
-                return Ok(message);
+                Some(unauthorized(&mcp, &self.target, None).await)
             }
-        }
-    }
-    Err("the stream ended before the answer".to_owned())
-}
-
-/// Answers waiting on an open stream, by request id.
-pub(crate) type Waiting = Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
-
-/// The older SSE transport: a stream for answers, and an address to POST to that the stream names.
-pub(crate) struct SseSession {
-    endpoint: Url,
-    authorization: Option<String>,
-    waiting: Waiting,
-    next_id: AtomicU64,
-    reader: JoinHandle<()>,
-}
-
-impl Drop for SseSession {
-    fn drop(&mut self) {
-        self.reader.abort();
-    }
-}
-
-impl SseSession {
-    pub(crate) async fn open(client: &McpClient, target: &Target) -> Result<Self, String> {
-        tokio::time::timeout(HANDSHAKE, Self::handshake(client, target))
-            .await
-            .map_err(|_| "the handshake timed out".to_owned())?
-    }
-
-    async fn handshake(client: &McpClient, target: &Target) -> Result<Self, String> {
-        let base = Url::parse(&target.url).map_err(|error| error.to_string())?;
-        let request = with_bearer(
-            client
-                .http
-                .get(base.clone())
-                .header("accept", "text/event-stream"),
-            client,
-            target,
-        );
-        let mut response = request
-            .send_noted()
-            .await
-            .map_err(|error| transport_error(&error))?;
-        if !response.status().is_success() {
-            return Err(format!("it answered {}", response.status().as_u16()));
-        }
-        let mut parser = SseParser::default();
-        let mut endpoint = None;
-        let mut early = Vec::new();
-        while endpoint.is_none() {
-            let chunk = response
-                .chunk()
-                .await
-                .map_err(|error| transport_error(&error))?
-                .ok_or("the stream ended before naming an address")?;
-            for event in parser.feed(&chunk) {
-                if event.name == "endpoint" && endpoint.is_none() {
-                    let joined = base.join(&event.data).map_err(|error| error.to_string())?;
-                    // A server names only an address of its own, so the credential never goes elsewhere.
-                    if joined.origin() != base.origin() {
-                        return Err("it named an address on another host".to_owned());
-                    }
-                    endpoint = Some(joined);
-                } else {
-                    early.push(event);
-                }
-            }
-        }
-        let waiting: Waiting = Arc::default();
-        let routed = Arc::clone(&waiting);
-        let reader = tokio::spawn(async move {
-            while let Ok(Some(chunk)) = response.chunk().await {
-                for event in parser.feed(&chunk) {
-                    route(&routed, &event.data);
-                }
-            }
-            // The stream ended: nothing more will be answered.
-            locked(&routed).clear();
-        });
-        let session = Self {
-            endpoint: endpoint.ok_or("no address")?,
-            authorization: bearer(client, target),
-            waiting,
-            next_id: AtomicU64::new(1),
-            reader,
-        };
-        session
-            .request(client, "initialize", initialize_params())
-            .await
-            .map_err(|error| error.to_string())?;
-        session
-            .post(
-                client,
-                &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        Ok(session)
-    }
-
-    async fn post(&self, client: &McpClient, body: &Value) -> Result<(), McpError> {
-        let mut request = client
-            .http
-            .post(self.endpoint.clone())
-            .header("content-type", "application/json")
-            .body(body.to_string());
-        if let Some(value) = &self.authorization {
-            request = request.header("authorization", value);
-        }
-        let response = request
-            .send_noted()
-            .await
-            .map_err(|error| McpError::Failed(transport_error(&error)))?;
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(McpError::failed(format!(
+            StreamableHttpError::Client(err) => Some(McpError::failed(format!(
+                "Could not reach the MCP server at {}: {}",
+                host_of(&self.target.url),
+                transport_error(err)
+            ))),
+            StreamableHttpError::HttpStatus(status) => Some(McpError::failed(format!(
                 "The MCP server answered {}",
-                response.status().as_u16()
+                status.status
+            ))),
+            _ => None,
+        }
+    }
+}
+
+impl StreamableHttpClient for NotedHttpClient {
+    type Error = reqwest::Error;
+
+    async fn post_message(
+        &self,
+        uri: Arc<str>,
+        message: ClientJsonRpcMessage,
+        session_id: Option<Arc<str>>,
+        auth_header: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+    ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
+        self.post_message_with_response_limits(
+            uri,
+            message,
+            session_id,
+            auth_header,
+            custom_headers,
+            StreamableHttpResponseLimits::default(),
+        )
+        .await
+    }
+
+    async fn post_message_with_response_limits(
+        &self,
+        uri: Arc<str>,
+        message: ClientJsonRpcMessage,
+        session_id: Option<Arc<str>>,
+        _auth_header: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+        limits: StreamableHttpResponseLimits,
+    ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
+        let mcp = self.as_mcp();
+        note_url("POST", &uri);
+        let token = bearer_token(&mcp, &self.target);
+        let first = normalize_post_response(
+            &message,
+            <reqwest::Client as StreamableHttpClient>::post_message_with_response_limits(
+                &self.client.http,
+                Arc::clone(&uri),
+                message.clone(),
+                session_id.clone(),
+                token,
+                custom_headers.clone(),
+                limits,
+            )
+            .await,
+        );
+        match first {
+            Ok(response) => Ok(response),
+            Err(error) => {
+                let is_401 = matches!(&error, StreamableHttpError::AuthRequired(_))
+                    || matches!(&error, StreamableHttpError::UnexpectedServerResponse(t) if t.starts_with("HTTP 401"));
+                if is_401 && self.target.auth == "oauth" && mcp.refresh_tokens(&self.target).await {
+                    note_url("POST", &uri);
+                    let refreshed = bearer_token(&mcp, &self.target);
+                    let retry = normalize_post_response(
+                        &message,
+                        <reqwest::Client as StreamableHttpClient>::post_message_with_response_limits(
+                            &self.client.http,
+                            uri,
+                            message.clone(),
+                            session_id,
+                            refreshed,
+                            custom_headers,
+                            limits,
+                        )
+                        .await,
+                    );
+                    if let Err(err) = &retry
+                        && let Some(mapped) = self.record_failure(err).await
+                    {
+                        *locked(&self.last_error) = Some(mapped);
+                    }
+                    return retry;
+                }
+                if let Some(mapped) = self.record_failure(&error).await {
+                    *locked(&self.last_error) = Some(mapped);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    async fn delete_session(
+        &self,
+        uri: Arc<str>,
+        session_id: Arc<str>,
+        _auth_header: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+    ) -> Result<(), StreamableHttpError<Self::Error>> {
+        let mcp = self.as_mcp();
+        note_url("DELETE", &uri);
+        let token = bearer_token(&mcp, &self.target);
+        <reqwest::Client as StreamableHttpClient>::delete_session(
+            &self.client.http,
+            uri,
+            session_id,
+            token,
+            custom_headers,
+        )
+        .await
+    }
+
+    async fn get_stream(
+        &self,
+        uri: Arc<str>,
+        session_id: Option<Arc<str>>,
+        last_event_id: Option<String>,
+        _auth_header: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+    ) -> Result<BoxStream<'static, Result<Sse, SseError>>, StreamableHttpError<Self::Error>> {
+        let mcp = self.as_mcp();
+        note_url("GET", &uri);
+        let token = bearer_token(&mcp, &self.target);
+        <reqwest::Client as StreamableHttpClient>::get_stream(
+            &self.client.http,
+            uri,
+            session_id,
+            last_event_id,
+            token,
+            custom_headers,
+        )
+        .await
+    }
+}
+
+/// Opens a remote Streamable HTTP MCP session through `rmcp`.
+pub(crate) async fn connect_remote(
+    client: &McpClient,
+    target: &Target,
+) -> Result<(RunningService<RoleClient, ()>, Arc<Mutex<Option<McpError>>>), McpError> {
+    let last_error = Arc::new(Mutex::new(None));
+    let noted = NotedHttpClient {
+        client: client.handle(),
+        target: target.clone(),
+        last_error: Arc::clone(&last_error),
+    };
+    let mut config = StreamableHttpClientTransportConfig::with_uri(target.url.clone());
+    config.allow_stateless = true;
+    let transport = StreamableHttpClientTransport::with_client(noted, config);
+    match tokio::time::timeout(HANDSHAKE, ().serve(transport)).await {
+        Ok(Ok(service)) => Ok((service, last_error)),
+        Ok(Err(error)) => {
+            if let Some(saved) = locked(&last_error).take() {
+                return Err(saved);
+            }
+            Err(McpError::failed(format!(
+                "Could not connect to the MCP server at {}: {error}",
+                host_of(&target.url)
             )))
         }
+        Err(_) => Err(McpError::failed(format!(
+            "The MCP server at {} did not finish the handshake in time",
+            host_of(&target.url)
+        ))),
     }
-
-    pub(crate) async fn request(
-        &self,
-        client: &McpClient,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, McpError> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = oneshot::channel();
-        locked(&self.waiting).insert(id, sender);
-        self.post(
-            client,
-            &json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
-        )
-        .await?;
-        let answer = receiver
-            .await
-            .map_err(|_| McpError::failed("The connection to the MCP server closed"))?;
-        result_of(answer)
-    }
-}
-
-/// Hands an answer to whoever waits for it.
-pub(crate) fn route(waiting: &Waiting, data: &str) {
-    let Ok(message) = serde_json::from_str::<Value>(data) else {
-        return;
-    };
-    if message.get("method").is_some() {
-        return;
-    }
-    if let Some(sender) = message
-        .get("id")
-        .and_then(Value::as_u64)
-        .and_then(|id| locked(waiting).remove(&id))
-    {
-        let _ = sender.send(message);
-    }
-}
-
-/// Plain JSON-RPC over POST, for small local servers that do not implement the MCP transports.
-pub(crate) async fn send_plain(
-    client: &McpClient,
-    url: &str,
-    method: &str,
-    params: Value,
-    headers: &[(&str, &str)],
-) -> Result<Value, McpError> {
-    let mut request = client
-        .http
-        .post(url)
-        .header("content-type", "application/json")
-        .body(json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }).to_string());
-    for (name, value) in headers {
-        request = request.header(*name, *value);
-    }
-    let response = request.send_noted().await.map_err(|error| {
-        McpError::failed(format!(
-            "Could not reach the MCP server at {}: {}",
-            crate::host_of(url),
-            transport_error(&error)
-        ))
-    })?;
-    let text = response
-        .text()
-        .await
-        .map_err(|error| McpError::Failed(transport_error(&error)))?;
-    let answer = serde_json::from_str(&text)
-        .map_err(|_| McpError::failed("The MCP server did not answer with JSON"))?;
-    result_of(answer)
 }

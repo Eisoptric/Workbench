@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { api as apiCall, until } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 let runtime;
@@ -22,17 +23,7 @@ after(async () => {
   await rm(folder, { recursive: true, force: true });
 });
 
-async function api(method, route, body, expected = [200, 201, 204]) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  assert.ok(expected.includes(response.status), `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
-}
+const api = (method, route, body, expected = [200, 201, 204]) => apiCall(runtime, method, route, body, expected);
 
 /** A server on a free port. `handle` gets the request, its body as text, and the response. */
 async function serve(handle) {
@@ -84,12 +75,8 @@ async function agentCalling(serverId, tool, autonomy = "bypass") {
   const model = await api("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: modelUrl });
   const agent = await api("POST", "/agents", { name: "Caller", modelConnectionId: model.id, autonomy, mcpConnectionIds: ["general-skills", serverId] });
   const created = await api("POST", `/agents/${agent.id}/runs`, { input: "go" });
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    const run = await api("GET", `/runs/${created.id}`);
-    if (!["queued", "running"].includes(run.status)) return { run, requests };
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("the run did not settle");
+  const run = await until("the run settles", () => api("GET", `/runs/${created.id}`), (item) => !["queued", "running"].includes(item.status), { ms: 10_000 });
+  return { run, requests };
 }
 
 for (const stream of [false, true]) {
@@ -111,24 +98,13 @@ for (const stream of [false, true]) {
   });
 }
 
-test("a server that only takes plain JSON-RPC still works", async () => {
-  const url = await serve((_request, raw, response) => {
-    const message = JSON.parse(raw);
-    const result = message.method === "initialize" ? { ok: true } : mcpAnswer(message);
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-  });
-  const server = await api("POST", "/connections/mcp", { name: "Plain", url });
-  assert.deepEqual((await api("POST", `/connections/mcp/${server.id}/discover`)).tools.map((tool) => tool.toolId), ["lookup"]);
-  const { run } = await agentCalling(server.id, "lookup");
-  assert.equal(run.status, "completed", run.error);
-  await api("DELETE", `/mcp/${server.id}`);
-});
-
 test("a tool's failure is a failed step the model hears about, and its refusal is a denied one", async () => {
-  const url = await serve((_request, raw, response) => {
+  const url = await serve((request, raw, response) => {
+    if (request.method !== "POST") return response.writeHead(405).end();
     const message = JSON.parse(raw);
+    if (message.id === undefined) return response.writeHead(202).end();
     const refused = message.method === "tools/call";
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...(refused ? { error: { code: 1, message: "policy_denied" } } : { result: message.method === "initialize" ? { ok: true } : mcpAnswer(message) }) }));
+    response.writeHead(200, { "mcp-session-id": "session-1", "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...(refused ? { error: { code: 1, message: "policy_denied" } } : { result: mcpAnswer(message) }) }));
   });
   const server = await api("POST", "/connections/mcp", { name: "Refusing", url });
   await api("POST", `/connections/mcp/${server.id}/discover`);

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "../../application/desktop";
 import { t } from "../../domain/i18n";
 import { Badge } from "../ui/base/Badge.js";
@@ -6,7 +7,6 @@ import { Button } from "../ui/base/Button.js";
 import { classes } from "../ui/base/classes.js";
 
 type Which = "accessibility" | "screenRecording";
-type Status = { platform: string; required: boolean; accessibility: boolean; screenRecording: boolean; error?: string };
 
 const ROWS: { which: Which; label: string; detail: string }[] = [
   { which: "accessibility", label: t("Accessibility"), detail: t("Lets agents click, type and read what is on screen.") },
@@ -25,20 +25,13 @@ export async function requestPermission(which: Which): Promise<void> {
 
 /** The computer-use permissions with their state, a Request button each, and a re-check while one is pending. */
 export function ComputerPermissions(props: { compact?: boolean }) {
-  const [status, setStatus] = useState<Status | null>(null);
   const [asked, setAsked] = useState(false);
-
-  useEffect(() => {
-    let stale = false;
-    const load = () => desktop.admin.computerPermissions().then((next) => { if (!stale) setStatus(next); }, () => undefined);
-    void load();
-    // After a request the answer arrives in System Settings, not here: look again every few seconds.
-    const timer = asked ? window.setInterval(() => void load(), 3000) : undefined;
-    return () => {
-      stale = true;
-      if (timer) window.clearInterval(timer);
-    };
-  }, [asked]);
+  // After a request the answer arrives in System Settings, not here: look again every few seconds.
+  const { data: status = null } = useQuery({
+    queryKey: ["admin", "computerPermissions"],
+    queryFn: () => desktop.admin.computerPermissions(),
+    refetchInterval: asked ? 3000 : false,
+  });
 
   if (status && !status.required) {
     return <p className="text-[12.5px] text-muted-foreground">{status.platform === "win32" ? t("Nothing to grant on Windows: agents can take screenshots and control apps already.") : t("Nothing to grant on this system: agents can take screenshots and control apps already.")}</p>;

@@ -92,6 +92,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout workbench-sdk
+        run: git clone --depth 1 https://github.com/Eisoptric/workbench-sdk.git ../workbench-sdk
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
@@ -148,6 +151,9 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout workbench-sdk
+        run: git clone --depth 1 https://github.com/Eisoptric/workbench-sdk.git ../workbench-sdk
 
       - name: Rust toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
@@ -225,6 +231,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout workbench-sdk
+        run: git clone --depth 1 https://github.com/Eisoptric/workbench-sdk.git ../workbench-sdk
+
       - name: Version
         id: version
         run: echo "version=${{ needs.version.outputs.version }}" >> "$GITHUB_OUTPUT"
@@ -292,6 +301,9 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Checkout workbench-sdk
+        run: git clone --depth 1 https://github.com/Eisoptric/workbench-sdk.git ../workbench-sdk
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
@@ -339,6 +351,9 @@ jobs:
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout workbench-sdk
+        run: git clone --depth 1 https://github.com/Eisoptric/workbench-sdk.git ../workbench-sdk
 
       - name: Version
         id: version

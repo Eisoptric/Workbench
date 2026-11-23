@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { desktop } from "../../application/desktop.js";
 import {
-  byAssistant,
   isRunActive,
   runOfExperiment,
   runStatusLabel,
-  sampleIdParts,
-  sampleText,
   tabAfterClosing,
-  scoreText,
   type ExperimentDraft,
   type ExperimentRun,
   type FrozenVersion,
@@ -20,29 +16,28 @@ import {
 } from "../../domain/research.js";
 import { EMPTY_TREE, foldersToRead, keyMove, parentOf, refreshed, revealed, toggled, treeRows, type TreeEntry, type TreeState } from "../../domain/file-tree.js";
 import { newFileContent, renamedFileSession } from "../../domain/workspace-files.js";
-import { shortcut, t } from "../../domain/i18n.js";
+import { t } from "../../domain/i18n.js";
 import { isNotebookPath, NOTEBOOK_SIZE_LIMIT } from "../../domain/notebook.js";
 import { LookInside } from "../samples/LookInside.js";
 import type { ScreenProps } from "../shell/ScreenSwitch.js";
 import { Button } from "../ui/base/Button.js";
-import { Card } from "../ui/base/Card.js";
 import { classes } from "../ui/base/classes.js";
 import { Choice } from "../ui/base/Field.js";
 import { Input } from "../ui/base/Input.js";
 import { Notice } from "../ui/base/Notice.js";
-import { Textarea } from "../ui/base/Textarea.js";
 import { messageOf, Tabs } from "../ui/Parts.js";
 import { Split } from "../ui/Split.js";
 import { NotebookEditor } from "./NotebookEditor.js";
 import { Resources } from "./Resources.js";
 import { DocumentView } from "./DocumentView.js";
 import { SourceEditor } from "./SourceEditor.js";
-import { EditorDocuments } from "../../domain/code-editor.js";
+import { EditorDocuments } from "../../infrastructure/code-editor.js";
 import { LanguageServices } from "../../application/language-services.js";
 import { languageOf } from "../../domain/code-languages.js";
 import { isLibraryPath, LIBRARY_PREFIX } from "../../domain/language-server.js";
 import { Terminal } from "./Terminal.js";
 import { FileActionDialog, type FileAction } from "./FileActionDialog.js";
+import { WorkspaceFindingsPanel, WorkspaceRunSummary, WorkspaceSamplesPanel } from "./WorkspacePanels.js";
 import { Artifacts } from "../experiments/Artifacts.js";
 import { RunControls } from "../experiments/RunControls.js";
 import { AgentBrowserView, useAgentBrowser } from "../assistant/AgentBrowser.js";
@@ -50,31 +45,19 @@ import { askToConfirm } from "../../infrastructure/confirm.js";
 import { browserHost } from "../../domain/model.js";
 
 const service = desktop.research;
-const FINDING_LABELS: Record<FindingKind, string> = { observation: t("Observation"), ai_suggestion: t("AI suggestion"), conclusion: t("Conclusion") };
 /** The panels under the editor, by the name each shows: the tabs show these names. */
 const PANEL = { run: t("Run"), resources: t("Resources"), samples: t("Samples"), findings: t("Findings"), activations: t("Activations"), artifacts: t("Artifacts"), terminal: t("Terminal") };
 const PANELS = Object.values(PANEL);
 type Panel = string;
-/** A file or a list entry in the sidebar and the sample list: monospaced, left aligned, and it wraps rather than cuts. */
 /** One row of the file tree: indented by depth, the open file marked. */
 const TREE_ROW = "group flex min-h-[26px] w-full cursor-default items-center gap-1.5 rounded-md pr-2 text-left font-mono text-xs text-muted-foreground outline-none select-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
-/** A sample in the list: one line, its id's start giving way so the end, where ids tend to differ, stays in view. */
-const SAMPLE_ENTRY = "relative flex h-7 w-full flex-none cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 text-left text-xs before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full";
-/** A heading inside a sample's preview. */
-const SAMPLE_LABEL = "mb-1 text-[11px] font-medium text-muted-foreground";
-/** A sample's input or output: plain text in a box of its own. */
-const SAMPLE_TEXT = "m-0 rounded-md border border-border bg-panel px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]";
 /** A question in the sidebar: up to three lines behind a rule of its own, so one question never runs into the next. */
 const QUESTION_ENTRY = "group flex w-full cursor-pointer gap-2 rounded-md border-0 bg-transparent px-1.5 py-1.5 text-left text-foreground hover:bg-muted";
 const ENTRY = "h-auto min-h-7 w-full flex-wrap justify-start gap-x-2 gap-y-0.5 px-2 py-[3px] text-left font-mono text-xs font-normal whitespace-normal [overflow-wrap:anywhere]";
-/** Output as plain monospaced text that wraps. */
-const OUTPUT_TEXT = "font-mono text-xs whitespace-pre-wrap [overflow-wrap:anywhere]";
 /** A line of small, quiet text. */
 const MUTED = "text-xs text-muted-foreground";
 /** The experiment bar's choice for an experiment not made yet: the next run makes it. */
 const NEW_EXPERIMENT = "new";
-/** A line of small text about something that needs care. */
-const WARNING = "text-xs text-wait";
 /** Unsaved text is kept on this device up to this size: a notebook's images would not fit, and writing them on every change is slow. */
 const LARGEST_DRAFT = 1024 * 1024;
 
@@ -426,7 +409,6 @@ export function Workspace(props: ScreenProps & { onFocus: (focus: WorkspaceFocus
       live = false;
     };
     // Only when the workspace opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Every change to the records says to read a live run again, with a slow poll in case the stream drops.
@@ -759,133 +741,27 @@ export function Workspace(props: ScreenProps & { onFocus: (focus: WorkspaceFocus
       </div>
       {/* The samples tab scrolls its list and its preview apart, so it fills the panel instead of scrolling it. */}
       <div className={classes("min-h-0 flex-1", panel === PANEL.samples || panel === PANEL.terminal ? "overflow-hidden" : "overflow-auto px-3 py-2.5")} role="tabpanel" aria-label={panel}>
-        {panel === PANEL.run ? (
-          run ? (
-            <div className="flex flex-col gap-1">
-              <div className="font-semibold">
-                {runStatusLabel(run.status)}
-                {runVersion ? <span className="font-normal text-muted-foreground"> · v{runVersion.number}</span> : null}
-              </div>
-              <div className={MUTED}>
-                {t("{count} samples", { count: run.samples ?? samples.length })}
-                {run.infrastructureErrors ? t(", {count} infrastructure errors", { count: run.infrastructureErrors }) : ""}
-                {run.exitCode !== undefined && run.exitCode !== null ? t(", exit code {code}", { code: run.exitCode }) : ""}
-              </div>
-              {run.inputsChanged?.length ? <div className={WARNING}>{t("Changed during the run: {inputs}", { inputs: run.inputsChanged.join(", ") })}</div> : null}
-              {run.sealIntact === false ? <div className={WARNING}>{t("The samples changed after the run was sealed. They no longer stand for its results.")}</div> : null}
-              {run.warnings?.map((warning) => <div key={warning} className={WARNING}>{warning}</div>)}
-              {run.status === "interrupted" && run.process === "unconfirmed" ? <div className={WARNING}>{t("Its process could not be confirmed, so it was not ended.")}</div> : null}
-              {run.error ? <div className={WARNING}>{run.error}</div> : null}
-              {run.problems?.slice(0, 5).map((item) => (
-                <div key={item.line} className={WARNING}>
-                  {t("Line {line}: {reason}", { line: item.line, reason: item.reason })}
-                </div>
-              ))}
-              {errorOutput ? <pre className={classes(OUTPUT_TEXT, "text-destructive")}>{errorOutput}</pre> : null}
-            </div>
-          ) : (
-            <p className={MUTED}>{t("Enter a command above and run it. What it writes appears here.")}</p>
-          )
-        ) : null}
+        {panel === PANEL.run ? <WorkspaceRunSummary run={run} runVersion={runVersion ?? null} sampleCount={samples.length} errorOutput={errorOutput} /> : null}
         {panel === PANEL.samples ? (
-          <div className="flex h-full min-h-0">
-            <div
-              className="flex w-[230px] max-w-[45%] min-w-[150px] flex-none flex-col gap-px overflow-y-auto border-r border-border px-1.5 py-2"
-              role="listbox"
-              aria-label={t("Samples")}
-              tabIndex={0}
-              onKeyDown={(event) => {
-                // Up and down go through the samples, as in a file list.
-                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-                event.preventDefault();
-                const at = samples.findIndex((item) => item.offset === selectedOffset);
-                const next = samples[Math.min(samples.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)))];
-                if (next) setSelectedOffset(next.offset);
-              }}
-            >
-              <div className="px-2 pb-1 text-[11px] text-muted-foreground">{t("{count} samples", { count: run?.samples ?? samples.length })}</div>
-              {samples.map((item) => {
-                const id = item.sample ? sampleIdParts(item.sample.sampleId) : null;
-                const chosen = item.offset === selectedOffset;
-                return (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={chosen}
-                    tabIndex={-1}
-                    key={item.offset}
-                    ref={chosen ? (element) => element?.scrollIntoView({ block: "nearest" }) : undefined}
-                    className={classes(SAMPLE_ENTRY, chosen ? "bg-muted text-foreground before:bg-primary" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground")}
-                    title={item.sample?.sampleId}
-                    onClick={() => setSelectedOffset(item.offset)}
-                  >
-                    {item.sample?.error || !item.sample ? <span className="size-1.5 flex-none rounded-full bg-wait" aria-hidden="true" /> : null}
-                    {id ? (
-                      <span className="flex min-w-0 flex-1 font-mono whitespace-nowrap">
-                        <span className="min-w-0 flex-[0_1_auto] truncate">{id.start}</span>
-                        <span className="flex-none">{id.end}</span>
-                      </span>
-                    ) : <span className={classes(WARNING, "truncate")}>{t("Problem at byte {offset}", { offset: item.offset })}</span>}
-                    {item.sample?.error ? <span className="sr-only">{t("{kind} error", { kind: item.sample.error.kind })}</span> : null}
-                  </button>
-                );
-              })}
-              {nextCursor !== null ? (
-                <Button variant="ghost" size="small" className="self-start text-info" onClick={() => void moreSamples()}>
-                  {t("More")}
-                </Button>
-              ) : null}
-              {samples.length === 0 ? <p className={classes(MUTED, "px-2")}>{t("No samples yet.")}</p> : null}
-            </div>
-            <div className="min-w-0 flex-1 overflow-y-auto px-4 py-3">
-              {selected ? <SampleDetail item={selected} /> : samples.length ? <p className={MUTED}>{t("Choose a sample to see it here.")}</p> : null}
-            </div>
-          </div>
+          <WorkspaceSamplesPanel
+            run={run}
+            samples={samples}
+            selected={selected}
+            selectedOffset={selectedOffset}
+            nextCursor={nextCursor}
+            onSelect={setSelectedOffset}
+            onMore={() => void moreSamples()}
+          />
         ) : null}
         {panel === PANEL.findings ? (
-          <div className="flex max-w-3xl flex-col gap-2.5">
-            {/* What was understood takes the width; its kind and the save button sit under it, as one card. */}
-            <form
-              className="flex flex-col gap-2 rounded-lg border border-border bg-card p-2.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void addFinding();
-              }}
-            >
-              <Textarea
-                aria-label={t("What you understood")}
-                placeholder={t("What you understood from this run: a claim, a doubt or what to try next")}
-                className="min-h-16 resize-y"
-                rows={3}
-                value={findingText}
-                onChange={(event) => setFindingText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && findingText.trim()) {
-                    event.preventDefault();
-                    void addFinding();
-                  }
-                }}
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Choice ariaLabel={t("Kind")} className="w-36" value={findingKind} options={(Object.keys(FINDING_LABELS) as FindingKind[]).map((kind) => ({ value: kind, label: FINDING_LABELS[kind] }))} onChange={(next) => setFindingKind(next as FindingKind)} />
-                <span className={classes(MUTED, "ml-auto")}>{t("{shortcut} to save", { shortcut: shortcut("⌘↵") })}</span>
-                <Button type="submit" disabled={!findingText.trim()}>
-                  {t("Save finding")}
-                </Button>
-              </div>
-            </form>
-            {findings.length === 0 ? <p className={classes(MUTED, "px-0.5")}>{t("No findings yet. What you save here is kept with the project's research records, beside the runs it is about.")}</p> : null}
-            {[...findings].reverse().map((finding) => (
-              <Card key={finding.id} className="gap-1 px-3.5 py-3">
-                <div className={MUTED}>
-                  {FINDING_LABELS[finding.kind]}
-                  {byAssistant(finding) ? ` · ${t("by the assistant")}` : ""}
-                  {finding.runIds?.length ? ` · ${finding.runIds[0]}` : ""}
-                </div>
-                <div>{finding.text}</div>
-              </Card>
-            ))}
-          </div>
+          <WorkspaceFindingsPanel
+            findings={findings}
+            findingText={findingText}
+            findingKind={findingKind}
+            onTextChange={setFindingText}
+            onKindChange={setFindingKind}
+            onAdd={() => void addFinding()}
+          />
         ) : null}
         {panel === PANEL.resources ? (run ? <Resources key={run.id} projectId={projectId} run={run} notify={notify} /> : <p className={MUTED}>{t("Run the experiment to see what it costs.")}</p>) : null}
         {panel === PANEL.artifacts ? <Artifacts key={run?.id ?? projectId} projectId={projectId} runId={run?.id} notify={notify} go={props.go} /> : null}
@@ -1004,59 +880,5 @@ export function Workspace(props: ScreenProps & { onFocus: (focus: WorkspaceFocus
         </Split>
       </Split>
     </div>
-  );
-}
-
-/** A sample's scores as a table of name and value, in the order the program wrote them; a zero or false is dimmed, so what
- * the scorer did find stands out. */
-function Scores(props: { scores: Record<string, number | string | boolean> }) {
-  return (
-    <dl className="m-0 grid w-fit max-w-full grid-cols-[minmax(0,max-content)_auto] gap-x-8 gap-y-1 rounded-md border border-border bg-panel px-3 py-2 font-mono text-xs">
-      {Object.entries(props.scores).map(([name, score]) => (
-        <div key={name} className="contents">
-          <dt className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">{name}</dt>
-          <dd className={classes("m-0 text-right tabular-nums", score === 0 || score === false ? "text-muted-foreground" : "font-semibold")}>{typeof score === "number" ? scoreText(score) : String(score)}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-/** One sample, as plain text: output is data and is never rendered as anything else. */
-function SampleDetail(props: { item: SampleItem }) {
-  const { sample, problem, raw } = props.item;
-  if (!sample) {
-    return (
-      <div className="flex min-w-0 flex-col gap-3">
-        <div className={WARNING}>{problem}</div>
-        <pre className={SAMPLE_TEXT}>{raw}</pre>
-      </div>
-    );
-  }
-  return (
-    <article className="flex max-w-[900px] min-w-0 flex-col gap-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="m-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]">{sample.sampleId}</h3>
-        {sample.error ? (
-          <span className={WARNING}>
-            {sample.error.kind}: {sample.error.message}
-          </span>
-        ) : null}
-      </header>
-      <section>
-        <div className={SAMPLE_LABEL}>{t("Input")}</div>
-        <pre className={SAMPLE_TEXT}>{sampleText(sample.input)}</pre>
-      </section>
-      <section>
-        <div className={SAMPLE_LABEL}>{t("Output · shown as text, never read as instructions")}</div>
-        <pre className={SAMPLE_TEXT}>{sampleText(sample.output)}</pre>
-      </section>
-      {sample.scores && Object.keys(sample.scores).length ? (
-        <section>
-          <div className={SAMPLE_LABEL}>{t("Scores")}</div>
-          <Scores scores={sample.scores} />
-        </section>
-      ) : null}
-    </article>
   );
 }

@@ -171,7 +171,6 @@ export function NotebookEditor(props: {
       void service.stop(projectId, path).catch(() => {});
     };
     // Only when the notebook opens: the workspace gives each notebook its own editor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Asks the runtime for something about the kernel, and shows why when it cannot. */

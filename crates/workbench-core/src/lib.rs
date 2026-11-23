@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::AbortHandle;
@@ -12,6 +12,7 @@ use workbench_browser::Browser;
 /// How often the browser's live view sends a viewer a frame.
 pub use workbench_browser::Pace;
 use workbench_computer::Computer;
+pub(crate) use workbench_domain::sync::locked;
 use workbench_llm::{Broker, Http, LlmError};
 use workbench_mcp::{McpClient, McpError};
 use workbench_store::FileStore;
@@ -52,7 +53,8 @@ pub mod history;
 mod tool_runs;
 
 /// A failure an API answer can carry: its status and a message for the user.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct CoreError {
     pub status: u16,
     pub message: String,
@@ -66,14 +68,6 @@ impl CoreError {
         }
     }
 }
-
-impl std::fmt::Display for CoreError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for CoreError {}
 
 impl From<io::Error> for CoreError {
     fn from(error: io::Error) -> Self {
@@ -170,11 +164,6 @@ pub struct Kernel {
     checking_pull_requests: Mutex<HashSet<String>>,
     /// The projects' research records.
     research: research::ResearchState,
-}
-
-/// Locks a table; a panic elsewhere leaves it usable.
-pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Kernel {

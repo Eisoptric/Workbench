@@ -9,6 +9,7 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "zvariant, Linux only, through tauri-plugin-single-instance's zbus" },
   { id = "RUSTSEC-2026-0371", reason = "zbus_names, Linux only, through tauri-plugin-single-instance's zbus" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, Linux only, through tauri-plugin-single-instance's zbus" },
+  { id = "RUSTSEC-2026-0543", reason = "chrono (unmaintained, no vulnerability), through the official rmcp SDK" },
 ]
 
 [sources]

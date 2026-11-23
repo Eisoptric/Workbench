@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { api as apiCall, fakeModel, request as apiRequest, settled, until } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 const casesFile = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases/computer.json");
@@ -71,7 +72,7 @@ before(async () => {
 });
 after(async () => {
   await runtime?.stop();
-  await Promise.all(servers.map((server) => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); })));
+  await Promise.all(servers.map((server) => server.stop()));
   if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
@@ -80,49 +81,23 @@ async function configure(change) {
   await writeFile(configFile, JSON.stringify({ accessibility: true, screenRecording: true, locked: false, ...change }));
 }
 
-async function call(method, route, body) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  return { status: response.status, body: text ? JSON.parse(text) : undefined };
-}
-
-async function api(method, route, body) {
-  const answer = await call(method, route, body);
-  assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
+const call = (method, route, body) => apiRequest(runtime, method, route, body);
+const api = (method, route, body) => apiCall(runtime, method, route, body);
 
 /** An agent that calls the tools it is given; gives back a function running a list of them. */
 async function toolRunner() {
   const queue = [];
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", () => {
-      // Background work (a chat's title, memory) asks without tools and must not take a step meant for the run.
-      const next = JSON.parse(raw || "{}").tools?.length ? queue.shift() : undefined;
-      const message = next ? { role: "assistant", content: "", tool_calls: [{ id: "c0", type: "function", function: { name: next[0], arguments: JSON.stringify(next[1]) } }] } : { role: "assistant", content: "done" };
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "r", object: "chat.completion", model: "s", choices: [{ index: 0, finish_reason: next ? "tool_calls" : "stop", message }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
-    });
+  const server = await fakeModel((body) => {
+    const next = body.tools?.length ? queue.shift() : undefined;
+    return next ? [{ id: "c0", type: "function", function: { name: next[0], arguments: JSON.stringify(next[1]) } }] : "done";
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   servers.push(server);
-  const connection = await api("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: `http://127.0.0.1:${server.address().port}` });
+  const connection = await api("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: server.url });
   const agent = await api("POST", "/agents", { name: "Tools", modelConnectionId: connection.id, autonomy: "bypass", mcpConnectionIds: ["computer-use"] });
   return async (steps) => {
     queue.push(...steps);
     const started = await api("POST", `/agents/${agent.id}/runs`, { input: "go" });
-    let current;
-    for (let attempt = 0; attempt < 1500; attempt += 1) {
-      current = await api("GET", `/runs/${started.id}`);
-      if (!["queued", "running", "waiting_approval"].includes(current.status)) break;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    const current = await until("the run", () => api("GET", `/runs/${started.id}`), settled);
     assert.equal(current.status, "completed", current.error);
     assert.equal(current.actions.length, steps.length);
     return current.actions.map((action, index) => ({ tool: steps[index][0], arguments: steps[index][1], status: action.status, ...(action.result === undefined ? {} : { result: action.result }), ...(action.reason === undefined ? {} : { reason: action.reason }) }));

@@ -4,11 +4,11 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { api, fakeModel, settled, until } from "./client.mjs";
 import { placed, startRuntime } from "./runtime.mjs";
 
 const casesFile = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases/agent-tools.json");
@@ -18,39 +18,21 @@ let runtime;
 let server;
 let agent;
 const queue = [];
-
-async function call(method, route, body) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  assert.ok(response.status < 300, `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
-}
+const call = (method, route, body) => api(runtime, method, route, body);
 
 before(async () => {
   scratch = await realpath(await mkdtemp(path.join(os.tmpdir(), "workbench-contract-tools-")));
   runtime = await startRuntime();
-  server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", () => {
-      // Background work (a chat's title, memory) asks without tools and must not take a step meant for the run.
-      const next = JSON.parse(raw || "{}").tools?.length ? queue.shift() : undefined;
-      const message = next ? { role: "assistant", content: "", tool_calls: [{ id: "c0", type: "function", function: { name: next[0], arguments: JSON.stringify(next[1]) } }] } : { role: "assistant", content: "done" };
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "r", object: "chat.completion", model: "s", choices: [{ index: 0, finish_reason: next ? "tool_calls" : "stop", message }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
-    });
+  server = await fakeModel((body) => {
+    const next = body.tools?.length ? queue.shift() : undefined;
+    return next ? [{ id: "c0", type: "function", function: { name: next[0], arguments: JSON.stringify(next[1]) } }] : "done";
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const connection = await call("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: `http://127.0.0.1:${server.address().port}` });
+  const connection = await call("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: server.url });
   agent = await call("POST", "/agents", { name: "Tools", modelConnectionId: connection.id, autonomy: "bypass", mcpConnectionIds: ["customizations"] });
 });
 after(async () => {
   await runtime?.stop();
-  await new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); });
+  await server?.stop();
   await rm(scratch, { recursive: true, force: true });
 });
 
@@ -63,12 +45,7 @@ async function run(steps, folder) {
     threadId = (await call("POST", `/agents/${agent.id}/threads`, { title: "Tools", projectId: project.id })).id;
   }
   const started = await call("POST", `/agents/${agent.id}/runs`, { input: "go", ...(threadId ? { threadId } : {}) });
-  let current;
-  for (let attempt = 0; attempt < 1500; attempt += 1) {
-    current = await call("GET", `/runs/${started.id}`);
-    if (!["queued", "running", "waiting_approval"].includes(current.status)) break;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  const current = await until("the run", () => call("GET", `/runs/${started.id}`), settled);
   assert.equal(current.status, "completed", current.error);
   assert.equal(current.actions.length, steps.length);
   return current.actions.map((action, index) => ({ tool: steps[index][0], arguments: steps[index][1], status: action.status, ...(action.result === undefined ? {} : { result: action.result }), ...(action.reason === undefined ? {} : { reason: action.reason }) }));

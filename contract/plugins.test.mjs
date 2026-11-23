@@ -1,10 +1,10 @@
 // Plugins and what a project's files may bring into a prompt, whichever language runs them.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { api as apiCall, fakeModel, fetched } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 let runtime;
@@ -17,25 +17,13 @@ before(async () => {
 });
 after(async () => {
   await runtime?.stop();
-  await Promise.all(servers.map((server) => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); })));
+  await Promise.all(servers.map((server) => server.stop()));
   await rm(scratch, { recursive: true, force: true });
 });
 
-async function call(method, route, body) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  return fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-}
+const call = (method, route, body) => fetched(runtime, method, route, body);
 
-async function api(method, route, body, expected = [200, 201, 204]) {
-  const response = await call(method, route, body);
-  const text = await response.text();
-  assert.ok(expected.includes(response.status), `${method} ${route}: ${response.status} ${text}`);
-  return text ? JSON.parse(text) : undefined;
-}
+const api = (method, route, body, expected = [200, 201, 204]) => apiCall(runtime, method, route, body, expected);
 
 /** A folder holding `files`, by path. */
 async function folder(name, files) {
@@ -50,18 +38,12 @@ async function folder(name, files) {
 /** A scripted model: `chat` answers each chat request. */
 async function model(chat) {
   const requests = [];
-  const server = createServer((request, response) => {
-    let text = "";
-    request.on("data", (chunk) => { text += chunk; });
-    request.on("end", () => {
-      const body = JSON.parse(text);
-      requests.push({ url: request.url, body });
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "r", object: "chat.completion", model: "s", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: chat(body) } }], usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } }));
-    });
+  const server = await fakeModel((body) => {
+    requests.push({ url: body.__url, body });
+    return chat(body);
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   servers.push(server);
-  return { requests, url: `http://127.0.0.1:${server.address().port}` };
+  return { requests, url: server.url };
 }
 
 test("a plugin installs from a folder and brings its skills, hooks and servers, running nothing", async () => {

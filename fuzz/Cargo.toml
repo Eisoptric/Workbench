@@ -13,7 +13,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "=0.4.13"
-workbench-appcontainer = { path = "../crates/workbench-appcontainer" }
+workbench-appcontainer = { path = "../../workbench-sdk/crates/workbench-appcontainer" }
 workbench-domain = { path = "../crates/workbench-domain" }
 
 # Its own workspace, so the repository's does not take it in.

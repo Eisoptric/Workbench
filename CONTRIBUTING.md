@@ -61,7 +61,7 @@ This policy is mandatory for every change to Eisoptric Workbench's own code (the
 Eisoptric Workbench downloads the Claude Code and Codex programs on demand, pinned to exact packages in `crates/workbench-core/src/agent-programs.json`. To move them, try the new versions against the protocol the contract tests record (`contract/programs.mjs`), then:
 
 ```bash
-node scripts/agent-programs-manifest.mjs <claude-agent-sdk version> <codex version>   # rewrites agent-programs.json
+node scripts/agent-programs-manifest.mjs <claude-agent-sdk version> <codex version> <uv version>   # rewrites agent-programs.json
 cargo build -p workbench-server -p workbench-cli
 node --test contract/programs.test.mjs contract/agent-programs-runs.test.mjs
 ```

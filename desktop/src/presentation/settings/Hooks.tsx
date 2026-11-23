@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { desktop } from "../../application/desktop";
 import { t } from "../../domain/i18n";
 import type { Hook, HookEvent, HookSet, Project } from "../../domain/model";
@@ -38,44 +39,68 @@ function HookList(props: { hooks: Hook[]; onRemove?: (index: number) => void }) 
 
 /** Settings → Hooks: the user's own hooks, then each project's file hooks, which run only once allowed. */
 export function HooksPage(props: { projects: Project[]; onError: (message: string) => void }) {
-  const [userHooks, setUserHooks] = useState<Hook[]>([]);
-  const [projectSets, setProjectSets] = useState<Record<string, HookSet[]>>({});
+  const queryClient = useQueryClient();
   const [event, setEvent] = useState<HookEvent>("pre_tool");
   const [matcher, setMatcher] = useState("");
   const [command, setCommand] = useState("");
-  const [busy, setBusy] = useState(false);
+  const projectIds = props.projects.map((project) => project.id).join(",");
 
-  useEffect(() => {
-    let active = true;
-    void desktop.admin.hooks().then((sets) => { if (active) setUserHooks(sets.find((set) => set.source === "user")?.hooks ?? []); }, (reason) => props.onError(reason instanceof Error ? reason.message : t("Could not load hooks")));
-    for (const project of props.projects) {
-      void desktop.admin.hooks(project.id).then((sets) => { if (active) setProjectSets((prev) => ({ ...prev, [project.id]: sets.filter((set) => set.source === "project-file" || set.source === "claude-file") })); }, () => undefined);
-    }
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.projects.map((project) => project.id).join(",")]);
+  const userQuery = useQuery({
+    queryKey: ["settings", "hooks", "user"],
+    queryFn: async () => {
+      try {
+        const sets = await desktop.admin.hooks();
+        return sets.find((set) => set.source === "user")?.hooks ?? [];
+      } catch (reason) {
+        props.onError(reason instanceof Error ? reason.message : t("Could not load hooks"));
+        throw reason;
+      }
+    },
+  });
 
-  async function save(next: Hook[]) {
-    setBusy(true);
-    try {
-      const sets = await desktop.admin.setUserHooks(next);
-      setUserHooks(sets.find((set) => set.source === "user")?.hooks ?? []);
+  const projectsQuery = useQuery({
+    queryKey: ["settings", "hooks", "projects", projectIds],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        props.projects.map(async (project) => {
+          try {
+            const sets = await desktop.admin.hooks(project.id);
+            return [project.id, sets.filter((set) => set.source === "project-file" || set.source === "claude-file")] as const;
+          } catch {
+            return [project.id, [] as HookSet[]] as const;
+          }
+        }),
+      );
+      return Object.fromEntries(entries) as Record<string, HookSet[]>;
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (next: Hook[]) => desktop.admin.setUserHooks(next),
+    onSuccess: (sets) => {
+      queryClient.setQueryData(["settings", "hooks", "user"], sets.find((set) => set.source === "user")?.hooks ?? []);
       props.onError("");
-    } catch (reason) {
-      props.onError(reason instanceof Error ? reason.message : t("Could not save hooks"));
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+    onError: (reason) => props.onError(reason instanceof Error ? reason.message : t("Could not save hooks")),
+  });
 
-  async function allow(projectId: string, set: HookSet, allowed: boolean) {
-    try {
-      const sets = allowed ? await desktop.admin.approveHooks(projectId, set.path!, set.fingerprint!) : await desktop.admin.revokeHooks(projectId, set.path!);
-      setProjectSets((prev) => ({ ...prev, [projectId]: sets.filter((item) => item.source === "project-file" || item.source === "claude-file") }));
-    } catch (reason) {
-      props.onError(reason instanceof Error ? reason.message : t("Could not change the approval"));
-    }
-  }
+  const allowMutation = useMutation({
+    mutationFn: ({ projectId, set, allowed }: { projectId: string; set: HookSet; allowed: boolean }) =>
+      allowed ? desktop.admin.approveHooks(projectId, set.path!, set.fingerprint!) : desktop.admin.revokeHooks(projectId, set.path!),
+    onSuccess: (sets, { projectId }) => {
+      queryClient.setQueryData<Record<string, HookSet[]>>(["settings", "hooks", "projects", projectIds], (prev) => ({
+        ...(prev ?? {}),
+        [projectId]: sets.filter((item) => item.source === "project-file" || item.source === "claude-file"),
+      }));
+    },
+    onError: (reason) => props.onError(reason instanceof Error ? reason.message : t("Could not change the approval")),
+  });
+
+  const userHooks = userQuery.data ?? [];
+  const projectSets = projectsQuery.data ?? {};
+  const busy = saveMutation.isPending;
+  const save = (next: Hook[]) => saveMutation.mutateAsync(next);
+  const allow = (projectId: string, set: HookSet, allowed: boolean) => allowMutation.mutate({ projectId, set, allowed });
 
   const withFiles = props.projects.filter((project) => (projectSets[project.id] ?? []).length);
   return (

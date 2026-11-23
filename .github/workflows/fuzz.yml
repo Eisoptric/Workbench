@@ -35,6 +35,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Checkout workbench-sdk
+        run: git clone --depth 1 https://github.com/Eisoptric/workbench-sdk.git ../workbench-sdk
+
       - name: Nightly toolchain
         run: rustup toolchain install "$NIGHTLY" --profile minimal
 

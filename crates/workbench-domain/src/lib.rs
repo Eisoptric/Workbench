@@ -11,8 +11,11 @@ pub mod prompt;
 pub mod research;
 pub mod skill_files;
 pub mod skills;
+pub mod sync;
 pub mod time;
 pub mod toolkits;
+
+pub use skills::public_address;
 
 /// A tool call's arguments, in the order the model sent them.
 pub type Arguments = serde_json::Map<String, serde_json::Value>;
@@ -22,11 +25,16 @@ pub(crate) fn argument_text(arguments: &Arguments, key: &str) -> String {
     js::text(arguments.get(key))
 }
 
+/// Bytes as lowercase hex.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// Random bytes as lowercase hex.
 pub fn random_hex(bytes: usize) -> std::io::Result<String> {
     let mut random = vec![0u8; bytes];
     getrandom::fill(&mut random).map_err(std::io::Error::other)?;
-    Ok(research::hex(&random))
+    Ok(hex(&random))
 }
 
 /// A new id for a record, like `run_0123456789abcdef`.
@@ -52,10 +60,15 @@ pub fn plain_path(path: std::path::PathBuf) -> std::path::PathBuf {
 }
 
 #[cfg(test)]
-mod path_tests {
+mod tests {
     use std::path::PathBuf;
 
-    use super::plain_path;
+    use super::{hex, plain_path};
+
+    #[test]
+    fn hex_formats_lowercase_bytes() {
+        assert_eq!(hex(&[0x00, 0x0a, 0xff]), "000aff");
+    }
 
     #[test]
     fn a_long_path_spelling_becomes_the_plain_one_and_nothing_else_changes() {

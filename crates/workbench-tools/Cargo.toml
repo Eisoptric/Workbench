@@ -13,22 +13,15 @@ workspace = true
 regex = "1"
 # Decompresses pages itself, since a page may be compressed however the server likes.
 reqwest = { version = "0.13", default-features = false, features = ["brotli", "deflate", "gzip", "native-tls"] }
-workbench-appcontainer = { path = "../workbench-appcontainer" }
 workbench-domain = { path = "../workbench-domain" }
-workbench-telemetry = { path = "../workbench-telemetry" }
+workbench-sandbox = { path = "../../../workbench-sdk/crates/workbench-sandbox" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
 url = "2"
 
 [target.'cfg(unix)'.dependencies]
-# Signals a process group without unsafe code.
-rustix = { version = "1", default-features = false, features = ["fs", "process", "std"] }
-
-[target.'cfg(windows)'.dependencies]
-# Windows has no process groups: a command's processes are found by who started whom, which the system is asked
-# through this crate, without unsafe code of the app's own.
-sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 
 [dev-dependencies]
 axum = "0.8"

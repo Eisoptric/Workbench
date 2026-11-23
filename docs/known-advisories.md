@@ -17,6 +17,7 @@ There are none: no known advisory is left open in what the macOS and Windows bui
 | RUSTSEC-2024-0429, GHSA-wrw7-89jp-8q8g (unsound `VariantStrIter`) | `glib` 0.18.5 | Linux builds of the Tauri shell only, through `muda` and `gtk`; Eisoptric Workbench has no Linux package | Tauri's Linux dependencies move to `glib` 0.20 or later |
 | RUSTSEC-2024-0370 (unmaintained) | `proc-macro-error` 1.0.4 | The same Linux path, a compile-time macro of `glib` | As above |
 | RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 (unmaintained) | `zvariant` 5.15.1, `zbus_names` 4.3.5, `zvariant_derive` 5.15.1 | Linux builds of the Tauri shell only, through `tauri-plugin-single-instance` and `zbus` | `zbus` moves off them |
+| RUSTSEC-2026-0543 (unmaintained) | `chrono` 0.4.45 | Transitive dependency of `rmcp` (`workbench-mcp`), notice only with no vulnerability | `rmcp` moves to `time` or `jiff` |
 
 ## Adding an entry
 
@@ -43,6 +44,7 @@ An advisory goes here only after a review shows it cannot be fixed now (no patch
 | RUSTSEC-2024-0429、GHSA-wrw7-89jp-8q8g（`VariantStrIter` 不健全） | `glib` 0.18.5 | 只在 Tauri 外殼的 Linux 建置中，經由 `muda` 與 `gtk`；Eisoptric Workbench 沒有 Linux 套件 | Tauri 的 Linux 相依套件改用 `glib` 0.20 以上 |
 | RUSTSEC-2024-0370（不再維護） | `proc-macro-error` 1.0.4 | 同一條 Linux 路徑，`glib` 的編譯期巨集 | 同上 |
 | RUSTSEC-2026-0370、RUSTSEC-2026-0371、RUSTSEC-2026-0372（不再維護） | `zvariant` 5.15.1、`zbus_names` 4.3.5、`zvariant_derive` 5.15.1 | 只在 Tauri 外殼的 Linux 建置中，經由 `tauri-plugin-single-instance` 與 `zbus` | `zbus` 不再使用它們 |
+| RUSTSEC-2026-0543（不再維護） | `chrono` 0.4.45 | 官方 MCP SDK `rmcp`（`workbench-mcp`）的間接相依套件，僅為不再維護通知、無安全漏洞 | `rmcp` 改用 `time` 或 `jiff` |
 
 ## 新增一筆
 

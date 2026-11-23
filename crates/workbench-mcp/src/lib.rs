@@ -1,13 +1,15 @@
-//! An MCP client. It speaks Streamable HTTP, falls back to the older SSE transport and finally to plain JSON-RPC POSTs for
-//! simple local servers, and starts local programs over stdio once the user has allowed them. Sessions are reused per server.
-//! Stopping a call is dropping its future.
+//! An MCP client built entirely on the official `rmcp` SDK: Streamable HTTP and local programs over stdio, with OAuth 2.1 PKCE.
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::{RoleClient, RunningService};
 use serde_json::{Value, json};
 use tokio::sync::OnceCell;
+use tokio::task::JoinHandle;
+pub(crate) use workbench_domain::sync::locked;
 use workbench_store::FileStore;
 use workbench_telemetry::network::client_builder;
 use workbench_telemetry::{Kind, Span};
@@ -15,18 +17,13 @@ use workbench_telemetry::{Kind, Span};
 mod local;
 mod oauth;
 mod remote;
-mod sse;
 
-use local::LocalSession;
 use oauth::Pending;
-use remote::{HttpSession, SseSession};
 
 /// How long a server gets to finish the handshake.
 const HANDSHAKE: Duration = Duration::from_secs(15);
 /// How long a request may take, as the official SDKs allow by default.
 const REQUEST: Duration = Duration::from_secs(60);
-/// The newest protocol version this client speaks.
-const PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// A local server to start and talk to over stdio, already allowed by the user.
 #[derive(Clone, Debug, Default)]
@@ -48,25 +45,18 @@ pub struct Target {
 }
 
 /// Why a call did not work.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum McpError {
     /// The server needs the user to sign in; the browser has been sent to this address.
+    #[error("Sign-in required")]
     SignIn(String),
+    #[error("{0}")]
     Failed(String),
 }
 
 impl McpError {
     fn failed(message: impl Into<String>) -> Self {
         Self::Failed(message.into())
-    }
-}
-
-impl std::fmt::Display for McpError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::SignIn(_) => "Sign-in required",
-            Self::Failed(message) => message,
-        })
     }
 }
 
@@ -78,38 +68,58 @@ const CONTROL: [&str; 4] = [
     "Agent is not allowed to call this tool",
 ];
 
-/// An open connection to a server.
-enum Session {
-    Http(HttpSession),
-    Sse(SseSession),
-    Local(LocalSession),
-    /// A small server that takes plain JSON-RPC POSTs and nothing of MCP's transports.
-    Plain,
+/// An open `rmcp` connection to a local or remote server.
+struct Session {
+    service: RunningService<RoleClient, ()>,
+    stderr: Option<JoinHandle<()>>,
+    last_error: Option<Arc<Mutex<Option<McpError>>>>,
 }
 
-/// A JSON-RPC answer's result, or the failure it reports.
-fn result_of(answer: Value) -> Result<Value, McpError> {
-    if let Some(error) = answer.get("error").filter(|error| !error.is_null()) {
-        let message = error
-            .get("message")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty());
-        return Err(McpError::failed(message.unwrap_or("MCP call failed")));
+impl Drop for Session {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.stderr {
+            handle.abort();
+        }
     }
-    Ok(answer.get("result").cloned().unwrap_or_else(|| json!({})))
 }
 
-/// What the client says to a new server.
-fn initialize_params() -> Value {
-    json!({
-        "protocolVersion": PROTOCOL_VERSION,
-        "capabilities": {},
-        "clientInfo": { "name": "workbench", "version": "0.1.0" },
-    })
-}
-
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+impl Session {
+    async fn request(&self, method: &str, params: Value) -> Result<Value, McpError> {
+        let map_error = |error: rmcp::ServiceError| {
+            if let Some(last) = &self.last_error
+                && let Some(saved) = locked(last).take()
+            {
+                return saved;
+            }
+            match error {
+                rmcp::ServiceError::McpError(data) if !data.message.is_empty() => {
+                    McpError::failed(data.message.into_owned())
+                }
+                other => McpError::failed(other.to_string()),
+            }
+        };
+        match method {
+            "tools/list" => {
+                let result = self.service.list_tools(None).await.map_err(map_error)?;
+                serde_json::to_value(result).map_err(|error| McpError::failed(error.to_string()))
+            }
+            "tools/call" => {
+                let name = params
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let arguments = params.get("arguments").and_then(Value::as_object).cloned();
+                let mut call = CallToolRequestParams::new(name);
+                if let Some(arguments) = arguments {
+                    call = call.with_arguments(arguments);
+                }
+                let result = self.service.call_tool(call).await.map_err(map_error)?;
+                serde_json::to_value(result).map_err(|error| McpError::failed(error.to_string()))
+            }
+            other => Err(McpError::failed(format!("Unsupported MCP method: {other}"))),
+        }
+    }
 }
 
 /// Host only: the rest of a URL can carry tokens.
@@ -132,13 +142,13 @@ pub type OpenBrowser = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// An MCP client for all of a runtime's servers.
 pub struct McpClient {
-    store: Arc<FileStore>,
-    redirect_url: String,
-    open_browser: OpenBrowser,
-    http: reqwest::Client,
-    sessions: Mutex<HashMap<String, Arc<OnceCell<Arc<Session>>>>>,
+    pub(crate) store: Arc<FileStore>,
+    pub(crate) redirect_url: String,
+    pub(crate) open_browser: OpenBrowser,
+    pub(crate) http: reqwest::Client,
+    pub(crate) sessions: Mutex<HashMap<String, Arc<OnceCell<Arc<Session>>>>>,
     /// OAuth sign-ins waiting for the browser to come back, by `state`.
-    pending: Mutex<HashMap<String, Pending>>,
+    pub(crate) pending: Arc<Mutex<HashMap<String, Pending>>>,
 }
 
 impl McpClient {
@@ -158,13 +168,23 @@ impl McpClient {
             open_browser,
             http,
             sessions: Mutex::default(),
-            pending: Mutex::default(),
+            pending: Arc::default(),
         })
+    }
+
+    pub(crate) fn handle(&self) -> remote::McpClientHandle {
+        remote::McpClientHandle {
+            store: Arc::clone(&self.store),
+            redirect_url: self.redirect_url.clone(),
+            open_browser: Arc::clone(&self.open_browser),
+            http: self.http.clone(),
+            pending: Arc::clone(&self.pending),
+        }
     }
 
     /// The tools a server has, as saved routes.
     pub async fn list_tools(&self, target: &Target) -> Result<Vec<Value>, McpError> {
-        let payload = self.rpc(target, "tools/list", json!({}), &[]).await?;
+        let payload = self.rpc(target, "tools/list", json!({})).await?;
         Ok(payload
             .get("tools")
             .and_then(Value::as_array)
@@ -184,19 +204,18 @@ impl McpClient {
             .collect())
     }
 
-    /// Calls one tool. `headers` go only to servers that take plain JSON-RPC.
+    /// Calls one tool.
     pub async fn call(
         &self,
         target: &Target,
         tool: &str,
         arguments: &Value,
-        headers: &[(&str, &str)],
+        _headers: &[(&str, &str)],
     ) -> Result<Value, McpError> {
         self.rpc(
             target,
             "tools/call",
             json!({ "name": tool, "arguments": arguments }),
-            headers,
         )
         .await
     }
@@ -256,7 +275,6 @@ impl McpClient {
         Ok(())
     }
 
-    /// The server's open session, opened now if it has none.
     async fn session(&self, target: &Target) -> Result<Arc<Session>, McpError> {
         let cell = Arc::clone(locked(&self.sessions).entry(target.id.clone()).or_default());
         cell.get_or_try_init(|| async { self.open(target).await.map(Arc::new) })
@@ -266,39 +284,22 @@ impl McpClient {
 
     async fn open(&self, target: &Target) -> Result<Session, McpError> {
         if let Some(command) = &target.command {
-            return LocalSession::start(command).await.map(Session::Local);
+            let (service, stderr) = local::connect_local(command).await?;
+            return Ok(Session {
+                service,
+                stderr: Some(stderr),
+                last_error: None,
+            });
         }
-        match HttpSession::open(self, target).await {
-            Ok(Some(session)) => return Ok(Session::Http(session)),
-            Ok(None) => return Ok(Session::Plain),
-            Err(remote::OpenFailure::Final(error)) => return Err(error),
-            Err(remote::OpenFailure::Other(reason)) => {
-                eprintln!(
-                    "[mcp] {} did not accept Streamable HTTP ({reason}); trying SSE",
-                    host_of(&target.url)
-                );
-            }
-        }
-        match SseSession::open(self, target).await {
-            Ok(session) => Ok(Session::Sse(session)),
-            Err(reason) => {
-                eprintln!(
-                    "[mcp] {} did not accept SSE ({reason}); using plain JSON-RPC",
-                    host_of(&target.url)
-                );
-                Ok(Session::Plain)
-            }
-        }
+        let (service, last_error) = remote::connect_remote(self, target).await?;
+        Ok(Session {
+            service,
+            stderr: None,
+            last_error: Some(last_error),
+        })
     }
 
-    /// One request. A session that broke is reopened on the next call.
-    async fn rpc(
-        &self,
-        target: &Target,
-        method: &str,
-        params: Value,
-        headers: &[(&str, &str)],
-    ) -> Result<Value, McpError> {
+    async fn rpc(&self, target: &Target, method: &str, params: Value) -> Result<Value, McpError> {
         let tool = (method == "tools/call").then(|| {
             params
                 .get("name")
@@ -321,26 +322,13 @@ impl McpClient {
         let answer = span
             .scope(async {
                 let session = self.session(target).await?;
-                match session.as_ref() {
-                    Session::Http(http) => {
-                        tokio::time::timeout(REQUEST, http.request(self, target, method, params))
-                            .await
-                            .unwrap_or_else(|_| Err(timed_out(method)))
-                    }
-                    Session::Sse(sse) => {
-                        tokio::time::timeout(REQUEST, sse.request(self, method, params))
-                            .await
-                            .unwrap_or_else(|_| Err(timed_out(method)))
-                    }
-                    Session::Local(local) => {
-                        tokio::time::timeout(REQUEST, local.request(method, params))
-                            .await
-                            .unwrap_or_else(|_| Err(timed_out(method)))
-                    }
-                    Session::Plain => {
-                        remote::send_plain(self, &target.url, method, params, headers).await
-                    }
-                }
+                tokio::time::timeout(REQUEST, session.request(method, params))
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(McpError::failed(format!(
+                            "The MCP server did not answer {method} in time"
+                        )))
+                    })
             })
             .await;
         let outcome = match &answer {
@@ -367,10 +355,6 @@ impl McpClient {
         );
         answer
     }
-}
-
-fn timed_out(method: &str) -> McpError {
-    McpError::failed(format!("The MCP server did not answer {method} in time"))
 }
 
 /// Where a server's credential is kept: the encrypted secrets file.

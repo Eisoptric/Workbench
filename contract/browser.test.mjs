@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { api, fetched, request as apiRequest, settled, tokenOf, until as pollUntil } from "./client.mjs";
 import { placeProgram } from "./programs.mjs";
 import { placed, startRuntime } from "./runtime.mjs";
 
@@ -44,37 +45,11 @@ async function start(env = {}) {
   return runtime;
 }
 
-async function fetched(runtime, method, route, body) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  return fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-}
-
-async function call(runtime, method, route, body) {
-  const response = await fetched(runtime, method, route, body);
-  const text = await response.text();
-  return { status: response.status, body: text ? JSON.parse(text) : undefined };
-}
-
-async function api(runtime, method, route, body) {
-  const answer = await call(runtime, method, route, body);
-  assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
-
-async function until(what, read, done = Boolean, seconds = 20) {
-  let value;
-  const deadline = Date.now() + seconds * 1000;
-  while (Date.now() < deadline) {
-    value = await read();
-    if (done(value)) return value;
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  }
-  throw new Error(`never happened: ${what}; last ${JSON.stringify(value)}`);
-}
+const call = async (runtime, method, route, body) => {
+  const { status, body: parsed } = await apiRequest(runtime, method, route, body);
+  return { status, body: parsed };
+};
+const until = (what, read, done = Boolean, seconds = 20) => pollUntil(what, read, done, { ms: seconds * 1000, interval: 40 });
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -98,7 +73,7 @@ async function toolRunner(runtime) {
     queue.push(...steps);
     const started = await api(runtime, "POST", `/agents/${agent.id}/runs`, { input: "go" });
     // A step may start the browser, which has thirty seconds to start and fifteen for a page to load.
-    const run = await until("the run", () => api(runtime, "GET", `/runs/${started.id}`), (item) => !["queued", "running", "waiting_approval"].includes(item.status), 90);
+    const run = await until("the run", () => api(runtime, "GET", `/runs/${started.id}`), settled, 90);
     assert.equal(run.status, "completed", run.error);
     assert.equal(run.actions.length, steps.length);
     return { id: run.id, answers: run.actions.map((action, index) => ({ tool: steps[index][0], arguments: steps[index][1], status: action.status, ...(action.result === undefined ? {} : { result: action.result }), ...(action.reason === undefined ? {} : { reason: action.reason }) })) };
@@ -109,7 +84,7 @@ async function toolRunner(runtime) {
 async function liveView(runtime) {
   const events = [];
   const stop = new AbortController();
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
+  const token = await tokenOf(runtime.dataDir);
   const response = await fetch(`${runtime.origin}/browser/live`, { headers: { authorization: `Bearer ${token}` }, signal: stop.signal });
   assert.match(response.headers.get("content-type"), /text\/event-stream/);
   const reading = (async () => {

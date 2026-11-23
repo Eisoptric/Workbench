@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { api as apiCall, fakeModel, request as apiRequest, until as pollUntil } from "./client.mjs";
 import { placed, startRuntime } from "./runtime.mjs";
 
 const casesFile = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases/origin.json");
@@ -132,55 +133,20 @@ before(async () => {
 });
 after(async () => {
   await runtime?.stop();
-  await Promise.all(servers.map((server) => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); })));
+  await Promise.all(servers.map((server) => server.stop ? server.stop() : new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); })));
   await rm(scratch, { recursive: true, force: true });
 });
 
-async function call(target, method, route, body) {
-  const token = (await readFile(path.join(target.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${target.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  return { status: response.status, body: text ? JSON.parse(text) : undefined };
-}
-
-async function api(method, route, body, target = runtime) {
-  const answer = await call(target, method, route, body);
-  assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-  return answer.body;
-}
-
-async function until(what, read, done) {
-  let value;
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    value = await read();
-    if (done(value)) return value;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`never happened: ${what}; last ${JSON.stringify(value)}`);
-}
+const call = (target, method, route, body) => apiRequest(target, method, route, body);
+const api = (method, route, body, target = runtime) => apiCall(target, method, route, body);
+const until = (what, read, done) => pollUntil(what, read, done, { ms: 10_000 });
 
 /** A model that answers with what `reply` says for each request. */
 async function model(reply, target = runtime) {
-  const requests = [];
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", () => {
-      const body = JSON.parse(raw || "{}");
-      requests.push(body);
-      const answer = reply(body);
-      const message = Array.isArray(answer) ? { role: "assistant", content: "", tool_calls: answer } : { role: "assistant", content: answer };
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "r", object: "chat.completion", model: "s", choices: [{ index: 0, finish_reason: Array.isArray(answer) ? "tool_calls" : "stop", message }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
-    });
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const server = await fakeModel((body) => reply(body));
   servers.push(server);
-  const connection = await api("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: `http://127.0.0.1:${server.address().port}` }, target);
-  return { requests, connection };
+  const connection = await api("POST", "/connections/models", { name: "Scripted", provider: "openai", model: "s", baseUrl: server.url }, target);
+  return { requests: server.requests, connection };
 }
 
 const toolCall = (name, args, id = "c0") => [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }];

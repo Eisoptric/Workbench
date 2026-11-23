@@ -5,24 +5,19 @@ use serde_json::Value;
 use workbench_domain::Arguments;
 use workbench_domain::js;
 
-pub mod appcontainer;
 pub mod code;
-pub mod confine;
 pub mod file;
 pub mod general;
 pub mod jobs;
-mod process;
-pub mod public_host;
-pub mod sandbox;
-pub mod shell;
 pub mod web;
 
-pub use process::{
-    Captured, EndOnDrop, continue_group, force, group_alive, group_of, in_own_group, launch_env,
-    leave_session, no_window, no_window_blocking, pause_group, run_captured, terminate,
+pub use workbench_sandbox::{
+    Captured, EndOnDrop, appcontainer, confine, continue_group, force, group_alive, group_of,
+    in_own_group, launch_env, leave_session, no_window, no_window_blocking, pause_group, process,
+    public_host, run_captured, sandbox, shell, terminate,
 };
 #[cfg(windows)]
-pub use process::{process_started, tree_usage};
+pub use workbench_sandbox::{process_started, tree_usage};
 
 /// What a tool returns to the model, or the message saying why it could not.
 pub type ToolResult = Result<Value, String>;

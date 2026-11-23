@@ -1,33 +1,17 @@
-//! The client against fake servers on a temporary data folder: the older SSE transport and a whole OAuth sign-in.
+//! The client against fake servers on a temporary data folder: OAuth 2.1 PKCE sign-in, token refresh, and transport errors.
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
-use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use tokio::sync::mpsc;
-use tokio_stream_shim::channel_body;
 use workbench_mcp::{McpClient, McpError, OpenBrowser, Target};
 use workbench_store::key_store::{KeyStoreName, key_store};
 use workbench_store::{FileStore, SecretsFile};
-
-/// Turns a channel into a streaming response body, as a long-lived SSE stream needs.
-mod tokio_stream_shim {
-    use super::{Body, mpsc};
-    pub fn channel_body(mut receiver: mpsc::UnboundedReceiver<String>) -> Body {
-        let stream = futures_util::stream::poll_fn(move |context| {
-            receiver
-                .poll_recv(context)
-                .map(|item| item.map(Ok::<_, std::convert::Infallible>))
-        });
-        Body::from_stream(stream)
-    }
-}
 
 async fn store() -> (Arc<FileStore>, TempDir) {
     let data = tempfile::tempdir().expect("a folder");
@@ -58,88 +42,14 @@ async fn listen(app: Router) -> String {
 fn answer(message: &Value) -> Value {
     let result = match message["method"].as_str() {
         Some("initialize") => {
-            json!({ "protocolVersion": message["params"]["protocolVersion"], "capabilities": {}, "serverInfo": { "name": "fake", "version": "1" } })
+            json!({ "protocolVersion": message["params"]["protocolVersion"], "capabilities": { "tools": {} }, "serverInfo": { "name": "fake", "version": "1" } })
         }
         Some("tools/list") => {
-            json!({ "tools": [{ "name": "lookup", "description": "d", "inputSchema": { "type": "object" } }, { "description": "no name" }] })
+            json!({ "tools": [{ "name": "lookup", "description": "d", "inputSchema": { "type": "object" } }] })
         }
         _ => json!({ "content": [{ "type": "text", "text": "called" }] }),
     };
     json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })
-}
-
-#[derive(Clone, Default)]
-struct Sse {
-    stream: Arc<Mutex<Option<mpsc::UnboundedSender<String>>>>,
-    streamable_tries: Arc<Mutex<u32>>,
-}
-
-async fn sse_open(State(state): State<Sse>) -> Response {
-    let (sender, receiver) = mpsc::unbounded_channel();
-    sender
-        .send("event: endpoint\ndata: /messages?session=1\n\n".to_owned())
-        .expect("open");
-    *state.stream.lock().expect("not poisoned") = Some(sender);
-    (
-        [(header::CONTENT_TYPE, "text/event-stream")],
-        channel_body(receiver),
-    )
-        .into_response()
-}
-
-/// The older transport refuses Streamable HTTP's POST.
-async fn sse_refuses(State(state): State<Sse>) -> StatusCode {
-    *state.streamable_tries.lock().expect("not poisoned") += 1;
-    StatusCode::METHOD_NOT_ALLOWED
-}
-
-async fn sse_message(State(state): State<Sse>, body: String) -> StatusCode {
-    let message: Value = serde_json::from_str(&body).expect("JSON");
-    if message.get("id").is_some() {
-        let frame = format!("event: message\ndata: {}\n\n", answer(&message));
-        if let Some(stream) = state.stream.lock().expect("not poisoned").as_ref() {
-            stream.send(frame).expect("open");
-        }
-    }
-    StatusCode::ACCEPTED
-}
-
-#[tokio::test]
-async fn a_server_on_the_older_sse_transport_works() {
-    let state = Sse::default();
-    let url = listen(
-        Router::new()
-            .route("/sse", get(sse_open).post(sse_refuses))
-            .route("/messages", post(sse_message))
-            .with_state(state.clone()),
-    )
-    .await;
-    let (store, _data) = store().await;
-    let client = McpClient::new(
-        store,
-        "http://127.0.0.1:1/oauth/callback".to_owned(),
-        Arc::new(|_: &str| {}),
-    )
-    .expect("a client");
-    let target = Target {
-        id: "s".to_owned(),
-        url: format!("{url}/sse"),
-        auth: "none".to_owned(),
-        command: None,
-    };
-    let tools = client.list_tools(&target).await.expect("tools");
-    assert_eq!(tools.len(), 1, "a tool with no name is left out");
-    assert_eq!(tools[0]["toolId"], "lookup");
-    let called = client
-        .call(&target, "lookup", &json!({}), &[])
-        .await
-        .expect("called");
-    assert_eq!(called["content"][0]["text"], "called");
-    assert_eq!(
-        *state.streamable_tries.lock().expect("not poisoned"),
-        1,
-        "the session is reused"
-    );
 }
 
 /// A signed server and its authorization server.

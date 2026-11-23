@@ -6,6 +6,8 @@ mod routes;
 mod routes_admin;
 mod routes_language_servers;
 mod routes_research;
+mod routes_telemetry;
+mod routes_workspace;
 mod terminal_sessions;
 
 use std::env;

@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { api as apiCall, request as apiRequest } from "./client.mjs";
 import { node } from "./files-support.mjs";
 import { startRuntime } from "./runtime.mjs";
 
@@ -23,30 +24,8 @@ after(async () => {
   await rm(outside, { recursive: true, force: true });
 });
 
-/** An API call with the token. Gives the status and the answer. */
-async function call(method, route, body) {
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
-  const response = await fetch(`${runtime.origin}${route}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  let answer = text;
-  try {
-    answer = text ? JSON.parse(text) : undefined;
-  } catch {
-    // Not JSON: a page.
-  }
-  return { status: response.status, body: answer };
-}
-
-/** The same, refusing any status but the expected one. */
-async function api(method, route, body, expected = 200) {
-  const { status, body: answer } = await call(method, route, body);
-  assert.equal(status, expected, `${method} ${route}: ${JSON.stringify(answer)}`);
-  return answer;
-}
+const call = (method, route, body) => apiRequest(runtime, method, route, body);
+const api = (method, route, body, expected = 200) => apiCall(runtime, method, route, body, expected);
 
 test("a model's key is saved, serves its provider and is never returned", async () => {
   const secret = "contract-secret-value";

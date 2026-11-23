@@ -6,7 +6,7 @@ import { insertNewlineAndIndent, toggleComment, undo } from "@codemirror/command
 import { indentUnit, syntaxTree } from "@codemirror/language";
 import { EditorSelection, StateField } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { createSourceState, EditorDocuments, indentationOf, indentCode, sourceActionKeys, sourceCompletions } from "../src/domain/code-editor.ts";
+import { createSourceState, EditorDocuments, indentationOf, indentCode, sourceActionKeys, sourceCompletions } from "../src/infrastructure/code-editor.ts";
 
 /** A command target that records real CodeMirror transactions without creating a view. */
 function editor(content, language = "python", extensions = []) {

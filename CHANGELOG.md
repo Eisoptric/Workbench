@@ -2,6 +2,13 @@
 
 The major changes in each Eisoptric Workbench release, for deciding whether to upgrade and what changes when you do. Every release is on [GitHub Releases](https://github.com/eisoptric/Workbench/releases) with its downloads, checksums and build provenance; versions below 1.0.0 are previews. Security fixes are also published as [GitHub security advisories](https://github.com/eisoptric/Workbench/security/advisories).
 
+## 0.7.1 (2026-11-23)
+
+### Changed
+
+- **The low-level runtime crates are now in their own open-source repository, [eisoptric/workbench-sdk](https://github.com/eisoptric/workbench-sdk).** The process and command sandbox (`workbench-sandbox`, `workbench-appcontainer`), desktop automation (`workbench-computer`), browser automation (`workbench-browser`) and verified archive downloads (`workbench-programs`) are decoupled from the app's own domain types and published with zero internal cross-crate dependencies.
+- **MCP connections now run on the official Rust MCP SDK (`rmcp`), and telemetry export on the official OpenTelemetry crates.** Both local stdio and remote Streamable HTTP MCP servers connect through `rmcp`, keeping the same OAuth sign-in, token refresh, public-host checks and network logging.
+
 ## 0.7.0 (2026-11-20)
 
 ### Changed

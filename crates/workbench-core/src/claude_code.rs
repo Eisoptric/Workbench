@@ -523,23 +523,10 @@ impl Kernel {
         command.env("CLAUDE_CONFIG_DIR", self.claude_config());
     }
 
-    async fn make_private_folder(folder: &Path) -> Result<(), CoreError> {
-        tokio::fs::create_dir_all(folder)
-            .await
-            .map_err(|error| CoreError::new(500, error.to_string()))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                tokio::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700)).await;
-        }
-        Ok(())
-    }
-
     /// Asks the official program whether it is signed in; it reads the credential, the app only reads its answer.
     pub async fn claude_status(&self) -> Result<Value, CoreError> {
         let config = self.claude_config();
-        Self::make_private_folder(&config).await?;
+        crate::agent_sessions::make_private_folder(&config).await?;
         let shown = config.to_string_lossy().into_owned();
         let Ok(cli) = self.program_path("claude-code") else {
             return Ok(
@@ -610,11 +597,8 @@ impl Kernel {
         model: &Value,
     ) -> Result<(), CoreError> {
         let run = self.get_run(run_id)?;
-        let workdir = self.program_workdir(&run).await?;
-        let workdir = tokio::fs::canonicalize(&workdir)
-            .await
-            .map_or(workdir, workbench_domain::plain_path);
-        Self::make_private_folder(&self.claude_config()).await?;
+        let workdir = self.canonical_program_workdir(&run).await?;
+        crate::agent_sessions::make_private_folder(&self.claude_config()).await?;
         let cli = self.program_path("claude-code")?;
         let resume = self.saved_session(&run, "claudeSessionId");
         let context = self.turn_context(agent, &run, &[]).await;
@@ -729,39 +713,16 @@ impl Kernel {
         if let Some(session) = session.as_deref().filter(|_| session != resume) {
             self.save_session(&run, "claudeSessionId", session).await?;
         }
-        if !self.alive(run_id, at) {
-            return Ok(());
-        }
-        let seconds = started.elapsed().as_secs_f64();
-        if let Some(failure) = failure {
-            let explained = if NOT_SIGNED_IN.is_match(&failure) {
-                "Claude Code isn't signed in for the app yet. In Settings → General → Claude Code, copy the login command and run it once in a terminal.".to_owned()
-            } else {
-                failure
-            };
-            log(
-                "agent",
-                "error",
-                &format!(
-                    "{} failed in Claude Code after {seconds:.1}s: {}",
-                    text(agent, "name"),
-                    clip(&explained, 200)
-                ),
-            );
-            return turn.finish(Some(explained)).await;
-        }
-        turn.finish(None).await?;
-        let count = locked(&turn.record).actions.len();
-        log(
-            "agent",
-            "info",
-            &format!(
-                "{} finished in Claude Code after {seconds:.1}s with {count} tool {}",
-                text(agent, "name"),
-                if count == 1 { "call" } else { "calls" }
-            ),
-        );
-        Ok(())
+        crate::agent_sessions::finish_program_turn(
+            &turn,
+            agent,
+            "Claude Code",
+            started,
+            failure,
+            &NOT_SIGNED_IN,
+            "Claude Code isn't signed in for the app yet. In Settings → General → Claude Code, copy the login command and run it once in a terminal.",
+        )
+        .await
     }
 }
 

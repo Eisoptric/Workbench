@@ -5,7 +5,7 @@ use reqwest::header::{CONTENT_TYPE, RETRY_AFTER};
 use reqwest::redirect::Policy;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use serde_json::Value;
-use workbench_domain::time::{days_from_civil, now_millis};
+use workbench_domain::time::now_millis;
 use workbench_store::json;
 use workbench_telemetry::network::{SendNoted, client_builder};
 
@@ -16,7 +16,8 @@ const RETRIES: u32 = 2;
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 
 /// A failed call. Its message may quote the provider's answer, and never holds a key.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct LlmError {
     /// The HTTP status, when the provider answered.
     pub status: Option<u16>,
@@ -53,14 +54,6 @@ impl LlmError {
     }
 }
 
-impl std::fmt::Display for LlmError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for LlmError {}
-
 fn without_address(error: &reqwest::Error) -> String {
     let mut text = error.to_string();
     if let Some(url) = error.url() {
@@ -88,24 +81,9 @@ pub fn retry_after(value: &str, now: i64) -> Option<Duration> {
 
 /// An HTTP date like `Wed, 21 Oct 2026 08:00:10 GMT`, in milliseconds since 1970.
 fn http_date_millis(value: &str) -> Option<i64> {
-    let mut parts = value.split_whitespace().skip(1);
-    let day: u32 = parts.next()?.parse().ok()?;
-    let month = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ]
-    .iter()
-    .position(|name| Some(*name) == parts.clone().next())? as u32
-        + 1;
-    let year: i64 = parts.nth(1)?.parse().ok()?;
-    let mut clock = parts.next()?.split(':').map(str::parse::<i64>);
-    let (hours, minutes, seconds) = (
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-    );
-    Some(
-        (days_from_civil(year, month, day) * 86_400 + hours * 3600 + minutes * 60 + seconds) * 1000,
-    )
+    jiff::fmt::rfc2822::parse(value)
+        .ok()
+        .map(|date| date.timestamp().as_millisecond())
 }
 
 /// The connection to providers, shared by every call.

@@ -11,6 +11,15 @@ use crate::skills::patch::{FileChange, parse_patch};
 use crate::{Arguments, argument_text};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(
+    test,
+    ts(
+        export,
+        rename = "PermissionEffect",
+        export_to = "../../../desktop/src/domain/generated/"
+    )
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Effect {
     Allow,
@@ -30,6 +39,15 @@ impl Effect {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(
+    test,
+    ts(
+        export,
+        rename = "PermissionRule",
+        export_to = "../../../desktop/src/domain/generated/"
+    )
+)]
 pub struct Rule {
     /// A tool id, or a glob over tool ids (`github_*`).
     pub tool: String,
@@ -38,6 +56,15 @@ pub struct Rule {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(
+    test,
+    ts(
+        export,
+        rename = "PermissionScope",
+        export_to = "../../../desktop/src/domain/generated/"
+    )
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum Scope {
     User,

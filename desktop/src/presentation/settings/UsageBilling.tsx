@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { desktop } from "../../application/desktop";
 import { t } from "../../domain/i18n";
-import type { AgentUsage, ModelUsage, UsageSummary, UsageTally } from "../../domain/model";
+import type { AgentUsage, ModelUsage, UsageTally } from "../../domain/model";
 import { Badge } from "../ui/base/Badge.js";
 import { Button } from "../ui/base/Button.js";
 import { Card } from "../ui/base/Card.js";
@@ -134,8 +135,6 @@ export function UsageBilling(props: { refreshOn?: readonly unknown[] }) {
     const today = startOfDay(new Date());
     return { from: dayValue(addDays(today, -6)), to: dayValue(today) };
   });
-  const [summary, setSummary] = useState<UsageSummary | null>(null);
-  const [error, setError] = useState("");
 
   function choose(next: Period) {
     setPeriod(next);
@@ -148,18 +147,13 @@ export function UsageBilling(props: { refreshOn?: readonly unknown[] }) {
 
   const range = rangeFor(period, custom);
   const rangeKey = `${range.from ?? ""}|${range.to ?? ""}`;
-  useEffect(() => {
-    let current = true;
-    setError("");
-    desktop.admin.usageSummary(range).then(
-      (next) => current && setSummary(next),
-      (reason: unknown) => current && setError(reason instanceof Error ? reason.message : t("Could not load usage")),
-    );
-    return () => {
-      current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeKey, ...(props.refreshOn ?? [])]);
+  const query = useQuery({
+    queryKey: ["settings", "usage", rangeKey, ...(props.refreshOn ?? [])],
+    queryFn: () => desktop.admin.usageSummary(range),
+    placeholderData: keepPreviousData,
+  });
+  const summary = query.data ?? null;
+  const error = query.error ? (query.error instanceof Error ? query.error.message : t("Could not load usage")) : "";
 
   const label = PERIODS.find(([id]) => id === period)?.[1] ?? "";
   const filter = (

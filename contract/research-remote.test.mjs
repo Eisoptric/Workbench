@@ -8,18 +8,14 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
+import { api as apiCall } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 import { until } from "./files-support.mjs";
 
 let runtime, folder, remote, binaries, data, origin, releases, served, runtimeEnv;
 const worker = path.resolve("target/debug", process.platform === "win32" ? "workbench-server.exe" : "workbench-server");
 /** A JSON request to the isolated runtime. */
-async function api(method, route, body) {
-  const response = await fetch(origin + route, { method, headers: { "content-type": "application/json", authorization: `Bearer ${(await readFile(path.join(data, "runtime-token"), "utf8")).trim()}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const value = await response.json();
-  assert.ok(response.ok, `${response.status}: ${JSON.stringify(value)}`);
-  return value;
-}
+const api = (method, route, body) => apiCall({ origin, dataDir: data }, method, route, body);
 before(async () => {
   folder = await realpath(await mkdtemp(path.join(os.tmpdir(), "workbench-remote-contract-")));
   remote = path.join(folder, "remote"); binaries = path.join(folder, "bin"); data = path.join(folder, "state");

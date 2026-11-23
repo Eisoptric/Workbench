@@ -1,5 +1,5 @@
 // Starts the app's runtime for the contract tests, on a free port with a temporary data folder, never the developer's
-// own the app. WORKBENCH_RUST_BIN picks the program; the default is the workspace's debug build.
+// own Workbench. WORKBENCH_RUST_BIN picks the program; the default is the workspace's debug build.
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";

@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
-import { createServer } from "node:http";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { api as apiCall, fakeServer, request as apiRequest, settled, until as pollUntil } from "./client.mjs";
 import { startRuntime } from "./runtime.mjs";
 
 /** A git configuration with nothing in it. Git for Windows cannot open the null device, so there it is an empty file. */
@@ -73,18 +73,7 @@ export function files(...steps) {
 export const idle = (seconds) => node(`setTimeout(() => {}, ${seconds * 1000})`);
 
 /** Reads until `done` says so, for up to `seconds`. */
-export async function until(what, read, done = Boolean, seconds = 30) {
-  const deadline = Date.now() + seconds * 1000;
-  let value;
-  for (;;) {
-    value = await read();
-    if (done(value)) return value;
-    if (Date.now() > deadline) throw new Error(`never happened: ${what}; last ${JSON.stringify(value)}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
-const settled = (run) => !["queued", "running", "waiting_approval"].includes(run.status);
+export const until = (what, read, done = Boolean, seconds = 30) => pollUntil(what, read, done, { ms: seconds * 1000 });
 
 /**
  * A fake OpenAI-compatible model. A request with `tools` takes the next step of `queue`: one call, a list of calls, or a
@@ -95,33 +84,22 @@ async function scriptedModel() {
   const queue = [];
   const requests = [];
   let calls = 0;
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => { raw += chunk; });
-    request.on("end", () => {
-      const body = JSON.parse(raw || "{}");
-      const step = body.tools?.length ? queue.shift() : undefined;
-      if (body.tools?.length) requests.push(body);
-      if (typeof step === "function") return step(request, response);
-      const list = step === undefined ? [] : typeof step[0] === "string" ? [step] : step;
-      const toolCalls = list.map(([name, args]) => ({ id: `call_${calls += 1}`, type: "function", function: { name, arguments: JSON.stringify(args) } }));
-      const message = toolCalls.length ? { role: "assistant", content: "", tool_calls: toolCalls } : { role: "assistant", content: "done" };
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
-        id: "reply",
-        object: "chat.completion",
-        model: "scripted",
-        choices: [{ index: 0, finish_reason: toolCalls.length ? "tool_calls" : "stop", message }],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }));
-    });
+  const server = await fakeServer((body, response, incoming) => {
+    const step = body.tools?.length ? queue.shift() : undefined;
+    if (body.tools?.length) requests.push(body);
+    if (typeof step === "function") return step(incoming, response);
+    const list = step === undefined ? [] : typeof step[0] === "string" ? [step] : step;
+    const toolCalls = list.map(([name, args]) => ({ id: `call_${calls += 1}`, type: "function", function: { name, arguments: JSON.stringify(args) } }));
+    const message = toolCalls.length ? { role: "assistant", content: "", tool_calls: toolCalls } : { role: "assistant", content: "done" };
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+      id: "reply",
+      object: "chat.completion",
+      model: "scripted",
+      choices: [{ index: 0, finish_reason: toolCalls.length ? "tool_calls" : "stop", message }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }));
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return {
-    queue,
-    requests,
-    url: `http://127.0.0.1:${server.address().port}`,
-    stop: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }),
-  };
+  return { queue, requests, url: server.url, stop: server.stop };
 }
 
 /** Starts a runtime; `stop()` ends it with every fake model and temporary folder the bench made. */
@@ -129,24 +107,9 @@ export async function bench({ env = {}, dataDir, keepData, cwd } = {}) {
   const runtime = await startRuntime({ env: { ...GIT_ALONE, ...env }, ...(dataDir ? { dataDir } : {}), ...(keepData ? { keepData } : {}), ...(cwd ? { cwd } : {}) });
   const models = [];
   const folders = [];
-  const token = (await readFile(path.join(runtime.dataDir, "runtime-token"), "utf8")).trim();
 
-  const call = async (method, route, body) => {
-    const response = await fetch(`${runtime.origin}${route}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    let parsed = text;
-    try { parsed = text ? JSON.parse(text) : undefined; } catch { /* Not JSON: left as text. */ }
-    return { status: response.status, body: parsed };
-  };
-  const api = async (method, route, body) => {
-    const answer = await call(method, route, body);
-    assert.ok(answer.status < 300, `${method} ${route}: ${answer.status} ${JSON.stringify(answer.body)}`);
-    return answer.body;
-  };
+  const call = (method, route, body) => apiRequest(runtime, method, route, body);
+  const api = (method, route, body) => apiCall(runtime, method, route, body);
 
   /** A new empty folder, by its real path: on macOS the temporary folder is reached through a link. */
   const folder = async () => {

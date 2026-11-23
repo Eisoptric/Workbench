@@ -14,10 +14,11 @@ mod span;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+pub(crate) use workbench_domain::sync::locked;
 use workbench_domain::time::{iso_time, now_millis};
 
 pub use buffer::Buffer;
@@ -63,11 +64,6 @@ pub(crate) static GLOBAL: LazyLock<Global> = LazyLock::new(|| Global {
     save_timer: AtomicBool::new(false),
     saving: tokio::sync::Mutex::new(()),
 });
-
-/// Locks shared state; a panic elsewhere leaves it usable.
-pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Milliseconds since the epoch, with their fraction.
 pub(crate) fn now_ms() -> f64 {
