@@ -5733,7 +5733,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "percent-encoding",
  "reqwest",
@@ -5755,7 +5755,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -5782,7 +5782,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-desktop"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "core-graphics",
@@ -5803,7 +5803,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-domain"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "getrandom 0.4.3",
  "jiff",
@@ -5818,7 +5818,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-llm"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "jiff",
@@ -5838,7 +5838,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-mcp"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -5887,7 +5887,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-server"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -5909,11 +5909,11 @@ dependencies = [
 
 [[package]]
 name = "workbench-standin"
-version = "0.7.0"
+version = "0.7.1"
 
 [[package]]
 name = "workbench-store"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "aes-gcm",
  "base64 0.23.1",
@@ -5929,7 +5929,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-telemetry"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "reqwest",
  "serde_json",
@@ -5941,7 +5941,7 @@ dependencies = [
 
 [[package]]
 name = "workbench-tools"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "flate2",

@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use futures_util::stream::BoxStream;
 use http::{HeaderName, HeaderValue};
 use rmcp::ServiceExt;
-use rmcp::model::ClientJsonRpcMessage;
+use rmcp::model::{
+    ClientJsonRpcMessage, ClientRequest, InitializeResult, JsonRpcMessage, ServerResult,
+};
 use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::streamable_http_client::{
     SseError, StreamableHttpClient, StreamableHttpClientTransport,
@@ -50,6 +52,31 @@ async fn unauthorized(client: &McpClient, target: &Target, challenge: Option<&st
     })
 }
 
+fn normalize_post_response(
+    request: &ClientJsonRpcMessage,
+    response: Result<StreamableHttpPostResponse, StreamableHttpError<reqwest::Error>>,
+) -> Result<StreamableHttpPostResponse, StreamableHttpError<reqwest::Error>> {
+    let is_init = matches!(
+        request,
+        JsonRpcMessage::Request(req) if matches!(req.request, ClientRequest::InitializeRequest(_))
+    );
+    let is_notification = matches!(request, JsonRpcMessage::Notification(_));
+    match response {
+        Ok(StreamableHttpPostResponse::Json(JsonRpcMessage::Response(mut resp), session_id))
+            if is_init && matches!(resp.result, ServerResult::CustomResult(_)) =>
+        {
+            resp.result = ServerResult::InitializeResult(InitializeResult::default());
+            Ok(StreamableHttpPostResponse::Json(
+                JsonRpcMessage::Response(resp),
+                session_id,
+            ))
+        }
+        Err(
+            StreamableHttpError::UnexpectedServerResponse(_) | StreamableHttpError::Deserialize(_),
+        ) if is_notification => Ok(StreamableHttpPostResponse::Accepted),
+        other => other,
+    }
+}
 fn note_url(method: &str, uri: &str) {
     if let Ok(parsed) = Url::parse(uri) {
         workbench_telemetry::network::note(method, &parsed);
@@ -147,16 +174,19 @@ impl StreamableHttpClient for NotedHttpClient {
         let mcp = self.as_mcp();
         note_url("POST", &uri);
         let token = bearer_token(&mcp, &self.target);
-        let first = <reqwest::Client as StreamableHttpClient>::post_message_with_response_limits(
-            &self.client.http,
-            Arc::clone(&uri),
-            message.clone(),
-            session_id.clone(),
-            token,
-            custom_headers.clone(),
-            limits,
-        )
-        .await;
+        let first = normalize_post_response(
+            &message,
+            <reqwest::Client as StreamableHttpClient>::post_message_with_response_limits(
+                &self.client.http,
+                Arc::clone(&uri),
+                message.clone(),
+                session_id.clone(),
+                token,
+                custom_headers.clone(),
+                limits,
+            )
+            .await,
+        );
         match first {
             Ok(response) => Ok(response),
             Err(error) => {
@@ -165,16 +195,19 @@ impl StreamableHttpClient for NotedHttpClient {
                 if is_401 && self.target.auth == "oauth" && mcp.refresh_tokens(&self.target).await {
                     note_url("POST", &uri);
                     let refreshed = bearer_token(&mcp, &self.target);
-                    let retry = <reqwest::Client as StreamableHttpClient>::post_message_with_response_limits(
-                        &self.client.http,
-                        uri,
-                        message,
-                        session_id,
-                        refreshed,
-                        custom_headers,
-                        limits,
-                    )
-                    .await;
+                    let retry = normalize_post_response(
+                        &message,
+                        <reqwest::Client as StreamableHttpClient>::post_message_with_response_limits(
+                            &self.client.http,
+                            uri,
+                            message.clone(),
+                            session_id,
+                            refreshed,
+                            custom_headers,
+                            limits,
+                        )
+                        .await,
+                    );
                     if let Err(err) = &retry
                         && let Some(mapped) = self.record_failure(err).await
                     {

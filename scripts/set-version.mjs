@@ -19,6 +19,13 @@ export const FILES = {
 };
 
 const WORKSPACE_VERSION = /^(\[workspace\.package\][^[]*?^version = ")([^"]+)(")/ms;
+const EXTERNAL_SDK_CRATES = new Set([
+  "workbench-appcontainer",
+  "workbench-browser",
+  "workbench-computer",
+  "workbench-programs",
+  "workbench-sandbox",
+]);
 
 /** The version the files say now, refusing files that disagree. */
 export function currentVersion(texts) {
@@ -41,7 +48,7 @@ export function setVersion(texts, version) {
   const cargoLock = texts.cargoLock.replace(
     /^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"\n(?!source = )/gm,
     (block, name, old) => {
-      if (old !== current) return block;
+      if (old !== current || EXTERNAL_SDK_CRATES.has(name)) return block;
       moved += 1;
       return `[[package]]\nname = "${name}"\nversion = "${version}"\n`;
     },
